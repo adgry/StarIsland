@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hans</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>zh-Hans</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>星岛</string>
+	<key>CFBundleDisplayName</key>
+	<string>星岛</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.adgry.starisland</string>
+	<key>CFBundleExecutable</key>
+	<string>StarIsland</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__APP_VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__BUILD_NUMBER__</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 星岛 StarIsland 开源项目</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_starisland._tcp</string>
+		<string>_airplay._tcp</string>
+		<string>_raop._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>星岛需要本地网络权限，用于手机免装 App 扫码双向快传、剪贴板互联及发现局域网媒体设备。</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>星岛需要自动化权限，用于静默联动控制音乐播放器、终端及系统事件。</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>星岛需要日历权限，用于在灵动岛展示近期日程与会议一键入会倒计时。</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>星岛需要日历权限，用于在灵动岛展示近期日程与会议一键入会倒计时。</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>星岛需要提醒事项权限，用于在灵动岛全景看板查看并勾选待办事项。</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>星岛需要提醒事项权限，用于在灵动岛全景看板查看并勾选待办事项。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>星岛需要摄像头权限，用于在灵动岛展开区内开启高清随身镜实时预览。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>星岛需要麦克风权限，用于 AI 语音指令交互与声波可视化。</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>星岛需要蓝牙权限，用于显示已连接耳机、键盘与触控板的实时电量。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>星岛需要定位权限，用于自动获取当前所在城市的实时天气预报。</string>
+	<key>NSLocationUsageDescription</key>
+	<string>星岛需要定位权限，用于自动获取当前所在城市的实时天气预报。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>星岛需要语音识别权限，用于将语音输入实时转换为中文或英文指令。</string>
+</dict>
+</plist>

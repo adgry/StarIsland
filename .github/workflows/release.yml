@@ -1,0 +1,51 @@
+name: 构建并发布星岛 StarIsland
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "发布版本号（如 1.0.1）"
+        required: true
+        default: "1.0.1"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: macOS arm64 构建签名与发布
+    runs-on: macos-15
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 运行全量单元测试
+        run: |
+          cd Packages/StarIslandKit
+          swift test
+
+      - name: 解析版本号并构建安装包
+        id: build
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VER="${{ inputs.version }}"
+          else
+            VER="${GITHUB_REF_NAME#v}"
+          fi
+          chmod +x scripts/build_app.sh scripts/generate_icon.swift
+          ./scripts/build_app.sh "$VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
+
+      - name: 发布至 GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.build.outputs.tag }}
+          name: 星岛 StarIsland ${{ steps.build.outputs.tag }}
+          files: |
+            dist/release-${{ steps.build.outputs.version }}/StarIsland-arm64.zip
+            dist/release-${{ steps.build.outputs.version }}/StarIsland-arm64.zip.sha256
+          generate_release_notes: true
