@@ -188,14 +188,15 @@ public enum MobileWebPortalHTML {
               </div>
 
               <div class="card">
-                <h2>遥控 Mac 媒体播放</h2>
-                <p class="hint">远程控制 Mac 当前正在播放的音乐或视频及系统音量。</p>
+                <h2>遥控 Mac 媒体、音量与锁屏</h2>
+                <p class="hint">远程控制 Mac 当前正在播放的音乐视频、系统音量或立即锁屏。</p>
                 <div class="media-grid">
                   <button class="secondary" onclick="sendMedia('volumeDown')">音量-</button>
                   <button class="secondary" onclick="sendMedia('previous')">上一曲</button>
                   <button onclick="sendMedia('playPause')">播放/暂停</button>
                   <button class="secondary" onclick="sendMedia('next')">下一曲</button>
                   <button class="secondary" onclick="sendMedia('volumeUp')">音量+</button>
+                  <button class="secondary" onclick="sendMedia('lockScreen')">锁定屏幕</button>
                 </div>
               </div>
             </div>

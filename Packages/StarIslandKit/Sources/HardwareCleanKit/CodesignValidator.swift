@@ -126,6 +126,12 @@ public enum CodesignValidator {
         return true
     }
 
+    /// 读取当前进程可执行文件的开发者团队标识符（Ad-hoc 签名时返回 nil）
+    public static func currentExecutableTeamIdentifier() -> String? {
+        guard let url = currentExecutableURL() else { return nil }
+        return teamIdentifier(forExecutableAt: url)
+    }
+
     // MARK: - 私有辅助方法
 
     private static func normalizeURL(_ url: URL) -> URL {

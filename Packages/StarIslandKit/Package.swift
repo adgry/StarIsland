@@ -58,7 +58,6 @@ let package = Package(
             dependencies: [
                 "IslandCore",
                 "HardwareCleanKit",
-                "LiveWidgetsKit",
             ],
             path: "Sources/StarIslandHelper",
             linkerSettings: [.linkedFramework("IOKit")]

@@ -424,4 +424,29 @@ final class AIConnectKitTests: XCTestCase {
         let translated = try await coordinator.translate(text: "Dynamic Island", targetLanguage: "简体中文")
         XCTAssertEqual(translated, "已收到：/api/chat")
     }
+
+    func testOneTimePINRotationAndBruteForceAutoReset() {
+        let manager = PairingTokenManager()
+        let firstPIN = manager.currentPIN
+        guard let token = manager.issueSessionToken(forPIN: firstPIN, deviceName: "iPhone") else {
+            return XCTFail("Expected valid session token on first use of PIN")
+        }
+        XCTAssertTrue(manager.isValidSession(token))
+
+        // One-time PIN must immediately rotate after successful pairing while keeping issued session valid
+        let secondPIN = manager.currentPIN
+        XCTAssertNotEqual(secondPIN, firstPIN)
+        XCTAssertNil(manager.issueSessionToken(forPIN: firstPIN, deviceName: "ReplayAttacker"))
+        XCTAssertTrue(manager.isValidSession(token))
+
+        // 5 consecutive wrong guesses must rotate currentPIN to defeat brute-force enumeration
+        let wrongGuess = (secondPIN == "000000") ? "111111" : "000000"
+        for _ in 0..<5 {
+            XCTAssertNil(manager.issueSessionToken(forPIN: wrongGuess))
+        }
+        XCTAssertNotEqual(manager.currentPIN, secondPIN)
+
+        // RemoteMediaCommand must support lockScreen
+        XCTAssertEqual(RemoteMediaCommand(rawValue: "lockScreen"), .lockScreen)
+    }
 }

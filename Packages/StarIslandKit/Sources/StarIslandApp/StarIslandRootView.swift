@@ -257,10 +257,11 @@ public struct StarIslandRootView: View {
                                 }
                             }
                             .frame(height: 6)
-                        } else if !item.subtitle.isEmpty {
+                        }
+                        if !item.subtitle.isEmpty {
                             Text(item.subtitle)
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.white.opacity(0.72))
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.68))
                                 .lineLimit(1)
                         }
                     }

@@ -178,4 +178,20 @@ final class IslandCoreTests: XCTestCase {
         XCTAssertEqual(info.version, SemanticVersion("1.2.0"))
         XCTAssertEqual(info.downloadURL?.lastPathComponent, "StarIsland-arm64.zip")
     }
+
+    func testSecurityDefaultsSHA256VerificationAndHostsBlocklistInIslandCore() throws {
+        let defaults = StarIslandSettings()
+        XCTAssertFalse(defaults.enableLANContinuityServer, "LAN continuity must be opt-in by default")
+        XCTAssertEqual(defaults.holdCommandQWhitelistedBundleIDs, [])
+
+        let payload = Data("starisland-binary-zip".utf8)
+        let expectedHex = SelfUpdater.sha256Hex(of: payload)
+        XCTAssertTrue(SelfUpdater.matchesExpectedSHA256(data: payload, sha256FileText: "\(expectedHex)  StarIsland-arm64.zip\n"))
+        XCTAssertFalse(SelfUpdater.matchesExpectedSHA256(data: payload, sha256FileText: "0000000000000000000000000000000000000000000000000000000000000000  StarIsland-arm64.zip"))
+
+        let baseHosts = "127.0.0.1 localhost\n"
+        let blocked = HostsBlocklistRenderer.applyBlockDomains(["weibo.com"], to: baseHosts)
+        XCTAssertTrue(blocked.contains("127.0.0.1 weibo.com"))
+        XCTAssertEqual(HostsBlocklistRenderer.removeManagedBlock(from: blocked), baseHosts)
+    }
 }

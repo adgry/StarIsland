@@ -103,6 +103,7 @@ public struct StarIslandSettings: Codable, Equatable, Sendable {
     public var enableDockClickMinimize: Bool = false
     public var enableHoldCommandQ: Bool = true
     public var holdCommandQDurationSeconds: Double = 0.8
+    public var holdCommandQWhitelistedBundleIDs: [String] = []
     public var enableFinderCutPaste: Bool = true
     public var enableGreenButtonZoomMaximize: Bool = false
     public var enableSmoothMouseScroll: Bool = false
@@ -150,7 +151,7 @@ public struct StarIslandSettings: Codable, Equatable, Sendable {
     public var openAIModel: String = "gpt-4o-mini"
     public var ollamaBaseURL: String = "http://127.0.0.1:11434"
     public var ollamaModel: String = "qwen2.5:7b"
-    public var enableLANContinuityServer: Bool = true
+    public var enableLANContinuityServer: Bool = false
     public var lanServerPort: UInt16 = 48620
 
     public init() {}

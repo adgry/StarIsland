@@ -47,6 +47,7 @@ public final class SpatialAudioProcessor: ObservableObject, @unchecked Sendable 
     private let stateLock = NSLock()
     private var _rotationHz: Double = 0.14
     private var _orbitRadius: Float = 2.4
+    private var _phaseCursor: Double = 0.0
     private var _bassBoostDB: Float = 4.5
     private var _reverbBlend: Float = 0.28
 
@@ -413,9 +414,13 @@ public final class SpatialAudioProcessor: ObservableObject, @unchecked Sendable 
             let dt = max(0, min(0.1, now - self.lastRotationTick))
             self.lastRotationTick = now
 
-            let hz = self.rotationHz
-            let radius = self.orbitRadius
-            let nextPhase = (self.currentPhase + dt * hz).truncatingRemainder(dividingBy: 1.0)
+            self.stateLock.lock()
+            let hz = self._rotationHz
+            let radius = self._orbitRadius
+            let nextPhase = (self._phaseCursor + dt * hz).truncatingRemainder(dividingBy: 1.0)
+            self._phaseCursor = nextPhase
+            self.stateLock.unlock()
+
             let pos = Self.eightDListenerPosition(phase: nextPhase, radius: radius)
             self.playerNode.position = AVAudio3DPoint(x: pos.x, y: pos.y, z: pos.z)
 

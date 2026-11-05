@@ -4,7 +4,6 @@ import HardwareCleanKit
 import IOKit
 import IOKit.ps
 import IslandCore
-import LiveWidgetsKit
 import ObjectiveC
 import Security
 
@@ -277,52 +276,90 @@ final class StarIslandHelperService: NSObject, NSXPCListenerDelegate, StarIsland
     }
 
     func installAppBundle(stagedPath: String, destinationPath: String, withReply reply: @escaping (Bool, String?) -> Void) {
-        let destURL = URL(fileURLWithPath: destinationPath).standardizedFileURL
-        let stagedURL = URL(fileURLWithPath: stagedPath).standardizedFileURL
+        let rawDestURL = URL(fileURLWithPath: destinationPath)
+        let canonicalParent = rawDestURL.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
+        let canonicalDestURL = canonicalParent.appendingPathComponent(rawDestURL.lastPathComponent)
 
-        guard destURL.lastPathComponent == "StarIsland.app",
-              destURL.path.hasPrefix("/Applications/") else {
-            reply(false, "拒绝安装：目标路径必须位于 /Applications/StarIsland.app")
+        guard canonicalDestURL.path == "/Applications/StarIsland.app" else {
+            reply(false, "拒绝安装：目标路径必须严格位于 /Applications/StarIsland.app")
             return
         }
+
+        // Ad-hoc 本地构建无唯一开发者团队证书锚点，禁止通过 root 守护进程免密覆盖，交由主程序回退管理员授权弹窗
+        guard let helperTeamID = CodesignValidator.currentExecutableTeamIdentifier(),
+              !helperTeamID.isEmpty else {
+            reply(false, "本地 Ad-hoc 构建需通过系统管理员授权完成覆盖升级")
+            return
+        }
+
+        let stagedURL = URL(fileURLWithPath: stagedPath).standardizedFileURL
         guard FileManager.default.fileExists(atPath: stagedURL.path) else {
             reply(false, "暂存更新包不存在")
             return
         }
 
-        // Verify staged app code signature and bundle identifier before replacing
-        var staticCode: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(stagedURL as CFURL, SecCSFlags(), &staticCode) == errSecSuccess,
-              let code = staticCode,
-              SecStaticCodeCheckValidity(code, SecCSFlags(), nil) == errSecSuccess else {
-            reply(false, "暂存更新包代码签名校验未通过")
-            return
-        }
-        var infoRef: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)), &infoRef) == errSecSuccess,
-              let info = infoRef as? [String: Any],
-              (info[kSecCodeInfoIdentifier as String] as? String) == StarIslandHelperConstants.appBundleIdentifier else {
-            reply(false, "暂存更新包应用标识符不匹配")
-            return
+        let rootSupportDir = URL(fileURLWithPath: "/Library/Application Support/StarIsland", isDirectory: true)
+        let rootStageDir = rootSupportDir.appendingPathComponent(".root-update-\(UUID().uuidString)", isDirectory: true)
+        let isolatedAppURL = rootStageDir.appendingPathComponent("StarIsland.app", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: rootStageDir)
         }
 
         do {
+            try FileManager.default.createDirectory(
+                at: rootStageDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rootStageDir.path)
+
+            // 先将候选包拷入 0700 root 专属隔离目录，彻底消除校验后被替换的 TOCTOU 竞态窗口
+            let copyIntoRoot = Process()
+            copyIntoRoot.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            copyIntoRoot.arguments = [stagedURL.path, isolatedAppURL.path]
+            try copyIntoRoot.run()
+            copyIntoRoot.waitUntilExit()
+            guard copyIntoRoot.terminationStatus == 0 else {
+                reply(false, "复制到受保护暂存目录失败（返回码 \(copyIntoRoot.terminationStatus)）")
+                return
+            }
+
             let xattr = Process()
             xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-            xattr.arguments = ["-cr", stagedURL.path]
+            xattr.arguments = ["-cr", isolatedAppURL.path]
             try? xattr.run()
             xattr.waitUntilExit()
 
-            if FileManager.default.fileExists(atPath: destURL.path) {
-                try FileManager.default.removeItem(at: destURL)
+            var staticCode: SecStaticCode?
+            let strictFlags = SecCSFlags(
+                rawValue: UInt32(kSecCSStrictValidate | kSecCSCheckNestedCode | kSecCSCheckAllArchitectures)
+            )
+            guard SecStaticCodeCreateWithPath(isolatedAppURL as CFURL, SecCSFlags(), &staticCode) == errSecSuccess,
+                  let code = staticCode,
+                  SecStaticCodeCheckValidity(code, strictFlags, nil) == errSecSuccess else {
+                reply(false, "暂存更新包严格签名与嵌套组件校验未通过")
+                return
             }
-            let ditto = Process()
-            ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-            ditto.arguments = [stagedURL.path, destURL.path]
-            try ditto.run()
-            ditto.waitUntilExit()
-            guard ditto.terminationStatus == 0 else {
-                reply(false, "ditto 复制返回码 \(ditto.terminationStatus)")
+
+            var infoRef: CFDictionary?
+            guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)), &infoRef) == errSecSuccess,
+                  let info = infoRef as? [String: Any],
+                  (info[kSecCodeInfoIdentifier as String] as? String) == StarIslandHelperConstants.appBundleIdentifier,
+                  (info[kSecCodeInfoTeamIdentifier as String] as? String) == helperTeamID else {
+                reply(false, "暂存更新包应用标识符或开发者团队 ID 不匹配")
+                return
+            }
+
+            if FileManager.default.fileExists(atPath: canonicalDestURL.path) {
+                try FileManager.default.removeItem(at: canonicalDestURL)
+            }
+            let installDitto = Process()
+            installDitto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            installDitto.arguments = [isolatedAppURL.path, canonicalDestURL.path]
+            try installDitto.run()
+            installDitto.waitUntilExit()
+            guard installDitto.terminationStatus == 0 else {
+                reply(false, "ditto 复制返回码 \(installDitto.terminationStatus)")
                 return
             }
             reply(true, nil)

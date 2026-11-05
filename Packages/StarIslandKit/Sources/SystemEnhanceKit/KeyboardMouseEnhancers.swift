@@ -250,6 +250,7 @@ public final class KeyboardMouseEnhancersController: ObservableObject {
         eventState.clickDebounce.thresholdMs = s.mouseClickDebounceMs
         eventState.keyDebounce.thresholdMs = s.keyboardDebounceMs
         eventState.holdCmdQ.holdDuration = max(0.2, s.holdCommandQDurationSeconds)
+        eventState.holdCmdQ.whitelistedBundleIDs = Set(s.holdCommandQWhitelistedBundleIDs)
         eventState.lock.unlock()
 
         if s.enableSmoothMouseScroll || s.reverseMouseScrollOnly {

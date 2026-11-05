@@ -90,5 +90,5 @@ echo "==> [6/6] 打包发行压缩包 $ZIP_PATH..."
 rm -f "$ZIP_PATH"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_BUNDLE" "$ZIP_PATH"
 
-shasum -a 256 "$ZIP_PATH" > "$ZIP_PATH.sha256"
+(cd "$RELEASE_DIR" && shasum -a 256 "StarIsland-arm64.zip" > "StarIsland-arm64.zip.sha256")
 echo "✅ 构建完成：$ZIP_PATH"

@@ -25,6 +25,7 @@ public struct PairingTokenManager: Sendable {
         let lock = NSLock()
         let sessionTTL: TimeInterval
         var currentPIN: String
+        var failedAttempts: Int = 0
         var sessionsByToken: [String: PairedDeviceSession] = [:]
 
         init(sessionTTL: TimeInterval) {
@@ -63,6 +64,7 @@ public struct PairingTokenManager: Sendable {
         defer { storage.lock.unlock() }
         let next = Storage.randomSixDigitPIN(excluding: storage.currentPIN)
         storage.currentPIN = next
+        storage.failedAttempts = 0
         storage.sessionsByToken.removeAll()
         return next
     }
@@ -77,8 +79,17 @@ public struct PairingTokenManager: Sendable {
         defer { storage.lock.unlock() }
 
         guard Self.constantTimeEquals(cleaned, storage.currentPIN) else {
+            storage.failedAttempts += 1
+            if storage.failedAttempts >= 5 {
+                storage.currentPIN = Storage.randomSixDigitPIN(excluding: storage.currentPIN)
+                storage.failedAttempts = 0
+            }
             return nil
         }
+
+        // One-time PIN rotation immediately upon successful authentication
+        storage.currentPIN = Storage.randomSixDigitPIN(excluding: storage.currentPIN)
+        storage.failedAttempts = 0
 
         let randomKey = SymmetricKey(size: .bits256)
         let token = randomKey.withUnsafeBytes { rawBuffer in

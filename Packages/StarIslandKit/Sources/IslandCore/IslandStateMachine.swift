@@ -142,6 +142,11 @@ public final class IslandStateMachine: ObservableObject {
         }
     }
 
+    public func startObservingSystemLockNotifications() {
+        guard lockObservers.isEmpty else { return }
+        installScreenLockObservers()
+    }
+
     public var visibleActivities: [IslandActivityItem] {
         let filtered = isScreenLocked ? activities.filter(\.allowsOnLockScreen) : activities
         return filtered.sorted { lhs, rhs in

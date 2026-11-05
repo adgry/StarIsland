@@ -330,14 +330,14 @@ public struct NowPlayingIslandTabView: View {
         settingsStore.settings.enableSurroundAudio = (target == .surround)
         settingsStore.settings.enableEightDAudio = (target == .eightD)
         spatialProcessor.rotationHz = settingsStore.settings.eightDRotationHz
-        spatialProcessor.setMode(target)
+        spatialProcessor.setMode(target, startHardwareEngine: true)
     }
 
     private func syncVisualizerAndSpatialMode() {
         let settings = settingsStore.settings
         let desiredMode: SpatialAudioMode = settings.enableEightDAudio ? .eightD : (settings.enableSurroundAudio ? .surround : .off)
         spatialProcessor.rotationHz = settings.eightDRotationHz
-        if spatialProcessor.mode != desiredMode { spatialProcessor.setMode(desiredMode) }
+        if spatialProcessor.mode != desiredMode { spatialProcessor.setMode(desiredMode, startHardwareEngine: desiredMode != .off) }
         spatialProcessor.setVisualizerActive((nowPlayingService.currentTrack?.isPlaying ?? false) && settings.enableAudioSpectrum)
     }
 }
@@ -479,11 +479,11 @@ public struct MediaSettingsPaneView: View {
     private func applySpatialSettings() {
         spatialProcessor.rotationHz = settingsStore.settings.eightDRotationHz
         if settingsStore.settings.enableEightDAudio {
-            spatialProcessor.setMode(.eightD)
+            spatialProcessor.setMode(.eightD, startHardwareEngine: true)
         } else if settingsStore.settings.enableSurroundAudio {
-            spatialProcessor.setMode(.surround)
+            spatialProcessor.setMode(.surround, startHardwareEngine: true)
         } else {
-            spatialProcessor.setMode(.off)
+            spatialProcessor.setMode(.off, startHardwareEngine: true)
         }
     }
 }

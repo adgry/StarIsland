@@ -116,6 +116,7 @@ public enum RemoteMediaCommand: String, Codable, CaseIterable, Sendable {
     case previous
     case volumeUp
     case volumeDown
+    case lockScreen
 }
 
 final class HTTPStreamAccumulator: @unchecked Sendable {

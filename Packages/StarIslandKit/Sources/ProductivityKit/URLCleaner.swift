@@ -3,7 +3,7 @@ import Foundation
 public enum URLCleaner {
     public static let defaultBlockedExactKeys: Set<String> = [
         "fbclid", "gclid", "dclid", "msclkid", "twclid", "ttclid", "yclid", "wbraid", "gbraid",
-        "spm", "spm_id_from", "vd_source", "from_spmid", "from", "isappinstalled",
+        "spm", "spm_id_from", "vd_source", "from_spmid", "isappinstalled",
         "share_source", "share_medium", "share_plat", "share_session_id", "share_tag", "unique_k",
         "igshid", "igsh", "mc_cid", "mc_eid", "_hsenc", "_hsmi", "mkt_tok",
         "vero_id", "oly_enc_id", "oly_anon_id", "rb_clickid", "s_kwcid", "wickedid"

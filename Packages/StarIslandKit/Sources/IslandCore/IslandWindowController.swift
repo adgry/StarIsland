@@ -23,6 +23,7 @@ public final class IslandPanel: NSPanel {
         isMovable = false
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
+        canBecomeVisibleWithoutLogin = true
     }
 
     public override var canBecomeKey: Bool {
@@ -63,10 +64,19 @@ public final class IslandWindowController {
             .store(in: &cancellables)
 
         stateMachine.$displayState
-            .combineLatest(stateMachine.$selectedTab, settingsStore.$settings)
+            .combineLatest(stateMachine.$selectedTab, stateMachine.$isScreenLocked, settingsStore.$settings)
             .receive(on: RunLoop.main)
-            .sink { [weak self] state, tab, _ in
+            .sink { [weak self] state, tab, isLocked, settings in
                 guard let self else { return }
+                let hideForLockScreen = isLocked && !settings.showOnLockScreen
+                for panel in self.panelsByDisplayID.values {
+                    if hideForLockScreen {
+                        panel.orderOut(nil)
+                    } else if !panel.isVisible {
+                        panel.orderFrontRegardless()
+                    }
+                }
+                guard !hideForLockScreen else { return }
                 let wantsKeyboard = (state == .expanded && (tab == .ai || tab == .shelf || tab == .widgets))
                 self.updatePanelFrames(animated: true, allowsKeyboard: wantsKeyboard)
             }

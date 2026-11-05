@@ -1,11 +1,14 @@
 import AIConnectKit
 import AppKit
+import ApplicationServices
 import Combine
+import Darwin
 import HardwareCleanKit
 import IslandCore
 import LiveWidgetsKit
 import MediaAudioKit
 import ProductivityKit
+import ServiceManagement
 import SQLite3
 import SwiftUI
 import SystemEnhanceKit
@@ -17,7 +20,7 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
     @Published public var selectedSettingsSection: SettingSection = .general
 
     private let settingsStore = SettingsStore.shared
-    private let stateMachine = IslandStateMachine(observeSystemLockNotifications: true)
+    private let stateMachine = IslandStateMachine.shared
     private var islandWindowController: IslandWindowController?
     private var settingsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
@@ -27,9 +30,12 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
     private var globalKeyMonitor: Any?
     private var localKeyMonitor: Any?
     private var mediaKeyMonitor: Any?
+    private var mediaEventTapID: UUID?
     private var widgetRefreshTimer: Timer?
     private var notificationPollTimer: Timer?
     private var lastNotificationCheckRefTime: Double = Date().timeIntervalSinceReferenceDate
+    private var lastAppliedLaunchAtLogin: Bool?
+    private var isTerminatingGracefully: Bool = false
 
     private override init() {
         super.init()
@@ -37,6 +43,7 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        stateMachine.startObservingSystemLockNotifications()
 
         // 1. Wire cross-module protocol registry
         ServiceRegistry.shared.aiService = AIAssistantCoordinator.shared
@@ -45,7 +52,7 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
             self?.openSettings(section: section)
         }
 
-        // 2. Wire mobile remote media commands
+        // 2. Wire mobile remote media & system commands
         LANContinuityServer.shared.onMediaCommand = { command in
             switch command {
             case .playPause:
@@ -55,9 +62,11 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
             case .previous:
                 NowPlayingService.shared.previousTrack()
             case .volumeUp:
-                _ = SystemHUDInterceptor.shared.handleMediaKey(keyType: 0, isKeyDown: true)
+                _ = SystemHUDInterceptor.shared.handleMediaKey(keyType: 0, isKeyDown: true, applyHardwareStep: true)
             case .volumeDown:
-                _ = SystemHUDInterceptor.shared.handleMediaKey(keyType: 1, isKeyDown: true)
+                _ = SystemHUDInterceptor.shared.handleMediaKey(keyType: 1, isKeyDown: true, applyHardwareStep: true)
+            case .lockScreen:
+                Self.lockMacScreenImmediately()
             }
         }
 
@@ -106,9 +115,16 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
         }
     }
 
-    public func applicationWillTerminate(_ notification: Notification) {
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isTerminatingGracefully else { return .terminateLater }
+        isTerminatingGracefully = true
+
         widgetRefreshTimer?.invalidate()
         notificationPollTimer?.invalidate()
+        if let tapID = mediaEventTapID {
+            EventTapBus.shared.unregister(tapID)
+            mediaEventTapID = nil
+        }
         islandWindowController?.stop()
         NowPlayingService.shared.stopMonitoring()
         SystemHUDInterceptor.shared.stopObserving()
@@ -119,16 +135,26 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
         TerminalActivityService.shared.stopListening()
         LANContinuityServer.shared.stop()
 
-        let semaphore = DispatchSemaphore(value: 0)
-        Task.detached {
+        var didReply = false
+        let finishTermination: @MainActor () -> Void = {
+            guard !didReply else { return }
+            didReply = true
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+
+        // 2 秒兜底超时确保任何情况下都不会卡死退出流程
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            finishTermination()
+        }
+
+        Task { @MainActor in
             await BatteryFanManager.shared.restoreSystemDefaultsOnTermination()
             await FocusBlockerService.shared.stopFocus()
-            await MainActor.run {
-                HelperCoordinator.shared.disconnectXPC()
-            }
-            semaphore.signal()
+            HelperCoordinator.shared.disconnectXPC()
+            finishTermination()
         }
-        _ = semaphore.wait(timeout: .now() + 1.5)
+
+        return .terminateLater
     }
 
     // MARK: - Subsystem Orchestration
@@ -147,6 +173,7 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
 
     private func reconcileSubsystems(with s: StarIslandSettings) {
         updateStatusBarVisibility(s.showMenuBarIcon)
+        syncLaunchAtLoginIfNeeded(s.launchAtLogin)
 
         if s.enableNowPlaying {
             NowPlayingService.shared.startMonitoring()
@@ -156,8 +183,13 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
 
         if s.enableCustomVolumeHUD || s.enableCustomBrightnessHUD {
             SystemHUDInterceptor.shared.startObserving()
+            registerMediaKeyEventTapIfNeeded()
         } else {
             SystemHUDInterceptor.shared.stopObserving()
+            if let tapID = mediaEventTapID {
+                EventTapBus.shared.unregister(tapID)
+                mediaEventTapID = nil
+            }
         }
 
         SpatialAudioProcessor.shared.rotationHz = s.eightDRotationHz
@@ -388,6 +420,8 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
 
         mediaKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .systemDefined) { [weak self] event in
             guard let self, event.subtype.rawValue == 8 else { return }
+            // 当辅助功能 EventTap 已激活时，由 EventTap 拦截原生 OSD 并完成硬件步进，避免重复触发
+            guard !EventTapBus.shared.isTapInstalled else { return }
             let data1 = event.data1
             let keyType = Int32((data1 & 0xFFFF0000) >> 16)
             let keyState = ((data1 & 0x0000FF00) >> 8)
@@ -397,9 +431,95 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
             Task { @MainActor in
                 let s = self.settingsStore.settings
                 guard s.enableCustomVolumeHUD || s.enableCustomBrightnessHUD else { return }
-                _ = SystemHUDInterceptor.shared.handleMediaKey(keyType: keyType, isKeyDown: true, fineStep: fine)
+                _ = SystemHUDInterceptor.shared.handleMediaKey(
+                    keyType: keyType,
+                    isKeyDown: true,
+                    fineStep: fine,
+                    applyHardwareStep: false
+                )
             }
         }
+    }
+
+    private func registerMediaKeyEventTapIfNeeded() {
+        guard mediaEventTapID == nil,
+              let sysDefinedType = CGEventType(rawValue: 14) else {
+            return
+        }
+        let entry = EventTapEntry(
+            name: "MediaHUDInterceptor",
+            priority: 120,
+            eventMask: EventTapEntry.mask(for: [sysDefinedType])
+        ) { [weak self] context in
+            guard let self,
+                  let cgEvent = context.cgEvent,
+                  let nsEvent = NSEvent(cgEvent: cgEvent),
+                  nsEvent.subtype.rawValue == 8 else {
+                return .passThrough
+            }
+            let data1 = nsEvent.data1
+            let keyType = Int32((data1 & 0xFFFF0000) >> 16)
+            let keyState = ((data1 & 0x0000FF00) >> 8)
+            let isKeyDown = (keyState == 0x0A)
+            let isKeyUp = (keyState == 0x0B)
+            guard isKeyDown || isKeyUp else { return .passThrough }
+
+            let fine = nsEvent.modifierFlags.contains([.option, .shift])
+            var shouldSuppress = false
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    let s = self.settingsStore.settings
+                    let isVolKey = (keyType == 0 || keyType == 1 || keyType == 7)
+                    let isBrightKey = (keyType == 2 || keyType == 3 || keyType == 21 || keyType == 22)
+                    if (isVolKey && s.enableCustomVolumeHUD) || (isBrightKey && s.enableCustomBrightnessHUD) {
+                        shouldSuppress = true
+                        if isKeyDown {
+                            _ = SystemHUDInterceptor.shared.handleMediaKey(
+                                keyType: keyType,
+                                isKeyDown: true,
+                                fineStep: fine,
+                                applyHardwareStep: true
+                            )
+                        }
+                    }
+                }
+            }
+            return shouldSuppress ? .suppress : .passThrough
+        }
+        mediaEventTapID = EventTapBus.shared.register(entry)
+    }
+
+    private func syncLaunchAtLoginIfNeeded(_ enabled: Bool) {
+        guard lastAppliedLaunchAtLogin != enabled else { return }
+        lastAppliedLaunchAtLogin = enabled
+        guard Bundle.main.bundleURL.pathExtension.lowercased() == "app" else { return }
+        do {
+            if enabled {
+                if SMAppService.mainApp.status != .enabled {
+                    try SMAppService.mainApp.register()
+                }
+            } else {
+                if SMAppService.mainApp.status == .enabled {
+                    try SMAppService.mainApp.unregister()
+                }
+            }
+        } catch {
+            // 非 /Applications 临时运行目录或用户手动在系统设置变更时静默忽略
+        }
+    }
+
+    private nonisolated static func lockMacScreenImmediately() {
+        if let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_LAZY),
+           let sym = dlsym(handle, "SACLockScreenImmediate") {
+            typealias LockFn = @convention(c) () -> Void
+            let fn = unsafeBitCast(sym, to: LockFn.self)
+            fn()
+            return
+        }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        proc.arguments = ["displaysleepnow"]
+        try? proc.run()
     }
 
     // MARK: - Periodic Widget Refresh & Safe Fresh-Only Notification OTP Tailer
@@ -447,7 +567,7 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
         guard FileManager.default.isReadableFile(atPath: dbPath) else { return }
 
         let sinceRef = lastNotificationCheckRefTime
-        lastNotificationCheckRefTime = Date().timeIntervalSinceReferenceDate
+        let queryStartedRef = Date().timeIntervalSinceReferenceDate
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK,
@@ -455,6 +575,7 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
             return
         }
         defer { sqlite3_close(db) }
+        sqlite3_busy_timeout(db, 150)
 
         let sql = """
         SELECT app.identifier, rec.data, rec.delivered_date
@@ -469,28 +590,39 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_double(stmt, 1, sinceRef)
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            let appID = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? "unknown"
-            guard let blobPtr = sqlite3_column_blob(stmt, 1) else { continue }
-            let blobLen = Int(sqlite3_column_bytes(stmt, 1))
-            guard blobLen > 0 else { continue }
-            let plistData = Data(bytes: blobPtr, count: blobLen)
-
-            guard let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
-                  let req = plist["req"] as? [String: Any] else {
-                continue
+        var maxDeliveredDate = sinceRef
+        var stepCode = sqlite3_step(stmt)
+        while stepCode == SQLITE_ROW {
+            let delivered = sqlite3_column_double(stmt, 2)
+            if delivered > maxDeliveredDate {
+                maxDeliveredDate = delivered
             }
-            let title = (req["titl"] as? String) ?? ""
-            let subtitle = (req["subt"] as? String) ?? ""
-            let body = (req["body"] as? String) ?? ""
-            let combinedBody = subtitle.isEmpty ? body : "\(subtitle) \(body)"
-            guard !title.isEmpty || !combinedBody.isEmpty else { continue }
+            let appID = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? "unknown"
+            if let blobPtr = sqlite3_column_blob(stmt, 1) {
+                let blobLen = Int(sqlite3_column_bytes(stmt, 1))
+                if blobLen > 0 {
+                    let plistData = Data(bytes: blobPtr, count: blobLen)
+                    if let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
+                       let req = plist["req"] as? [String: Any] {
+                        let title = (req["titl"] as? String) ?? ""
+                        let subtitle = (req["subt"] as? String) ?? ""
+                        let body = (req["body"] as? String) ?? ""
+                        let combinedBody = subtitle.isEmpty ? body : "\(subtitle) \(body)"
+                        if !title.isEmpty || !combinedBody.isEmpty {
+                            _ = SmartInboxCoordinator.shared.ingestNotification(
+                                appBundleID: appID,
+                                title: title,
+                                body: combinedBody
+                            )
+                        }
+                    }
+                }
+            }
+            stepCode = sqlite3_step(stmt)
+        }
 
-            _ = SmartInboxCoordinator.shared.ingestNotification(
-                appBundleID: appID,
-                title: title,
-                body: combinedBody
-            )
+        if stepCode == SQLITE_DONE {
+            lastNotificationCheckRefTime = max(maxDeliveredDate, queryStartedRef)
         }
     }
 
@@ -502,8 +634,9 @@ public final class AppCoordinator: NSObject, ObservableObject, NSApplicationDele
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard let volumeURL = note.userInfo?[NSWorkspace.localizedVolumeNameUserInfoKey] as? URL
-                    ?? note.userInfo?["NSDevicePath"] as? URL else {
+            let volumeURL = (note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)
+                ?? (note.userInfo?["NSDevicePath"] as? String).map { URL(fileURLWithPath: $0) }
+            guard let volumeURL else {
                 return
             }
             Task { @MainActor in

@@ -82,7 +82,7 @@ public final class SystemHUDInterceptor: ObservableObject {
     }
 
     /// 钳制输入百分比至 [0, 1] 安全区间
-    public static func clampUnitValue(_ raw: Double) -> Double {
+    public nonisolated static func clampUnitValue(_ raw: Double) -> Double {
         guard raw.isFinite else { return 0.0 }
         return min(max(raw, 0.0), 1.0)
     }
@@ -179,40 +179,61 @@ public final class SystemHUDInterceptor: ObservableObject {
     // MARK: - 媒体功能键响应接口（标准 1/16 步进与 ⌥⇧ 1/64 微调步进）
 
     @discardableResult
-    public func handleMediaKey(keyType: Int32, isKeyDown: Bool = true, fineStep: Bool = false) -> Bool {
+    public func handleMediaKey(
+        keyType: Int32,
+        isKeyDown: Bool = true,
+        fineStep: Bool = false,
+        applyHardwareStep: Bool = true
+    ) -> Bool {
         guard isKeyDown else { return true }
         let step = fineStep ? (1.0 / 64.0) : (1.0 / 16.0)
 
         switch keyType {
         case MediaKeyType.soundUp:
             guard settingsStore.settings.enableCustomVolumeHUD else { return false }
-            let next = Self.clampUnitValue((isMuted ? 0.0 : currentVolume) + step)
-            setSystemVolume(next)
-            presentHUD(kind: .volume, value: next, isMuted: false)
+            if applyHardwareStep {
+                let next = Self.clampUnitValue((isMuted ? 0.0 : currentVolume) + step)
+                setSystemVolume(next)
+                presentHUD(kind: .volume, value: next, isMuted: false)
+            }
             return true
 
         case MediaKeyType.soundDown:
             guard settingsStore.settings.enableCustomVolumeHUD else { return false }
-            let next = Self.clampUnitValue(currentVolume - step)
-            setSystemVolume(next)
-            presentHUD(kind: .volume, value: next, isMuted: next <= 0.001)
+            if applyHardwareStep {
+                let next = Self.clampUnitValue(currentVolume - step)
+                setSystemVolume(next)
+                presentHUD(kind: .volume, value: next, isMuted: next <= 0.001)
+            }
             return true
 
         case MediaKeyType.mute:
             guard settingsStore.settings.enableCustomVolumeHUD else { return false }
-            let nextMuted = !isMuted
-            setSystemMute(nextMuted)
-            presentHUD(kind: .volume, value: currentVolume, isMuted: nextMuted)
+            if applyHardwareStep {
+                let nextMuted = !isMuted
+                setSystemMute(nextMuted)
+                presentHUD(kind: .volume, value: currentVolume, isMuted: nextMuted)
+            }
             return true
 
         case MediaKeyType.brightnessUp:
             guard settingsStore.settings.enableCustomBrightnessHUD else { return false }
-            presentHUD(kind: .brightness, value: Self.clampUnitValue(currentBrightness + step))
+            let base = Self.readSystemDisplayBrightness() ?? currentBrightness
+            let next = Self.clampUnitValue(base + step)
+            if applyHardwareStep {
+                Self.setSystemDisplayBrightness(next)
+            }
+            presentHUD(kind: .brightness, value: next)
             return true
 
         case MediaKeyType.brightnessDown:
             guard settingsStore.settings.enableCustomBrightnessHUD else { return false }
-            presentHUD(kind: .brightness, value: Self.clampUnitValue(currentBrightness - step))
+            let base = Self.readSystemDisplayBrightness() ?? currentBrightness
+            let next = Self.clampUnitValue(base - step)
+            if applyHardwareStep {
+                Self.setSystemDisplayBrightness(next)
+            }
+            presentHUD(kind: .brightness, value: next)
             return true
 
         case MediaKeyType.illuminationUp:
@@ -226,15 +247,21 @@ public final class SystemHUDInterceptor: ObservableObject {
             return true
 
         case MediaKeyType.playPause:
-            NowPlayingService.shared.togglePlayPause()
+            if applyHardwareStep {
+                NowPlayingService.shared.togglePlayPause()
+            }
             return true
 
         case MediaKeyType.next:
-            NowPlayingService.shared.nextTrack()
+            if applyHardwareStep {
+                NowPlayingService.shared.nextTrack()
+            }
             return true
 
         case MediaKeyType.previous, MediaKeyType.rewind:
-            NowPlayingService.shared.previousTrack()
+            if applyHardwareStep {
+                NowPlayingService.shared.previousTrack()
+            }
             return true
 
         default:
@@ -359,7 +386,34 @@ public final class SystemHUDInterceptor: ObservableObject {
         } else {
             currentVolume = Self.clampUnitValue(vol)
             isMuted = muted
+            if let hwBrightness = Self.readSystemDisplayBrightness() {
+                currentBrightness = Self.clampUnitValue(hwBrightness)
+            }
         }
+    }
+
+    private nonisolated static func readSystemDisplayBrightness() -> Double? {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
+              let sym = dlsym(handle, "DisplayServicesGetBrightness") else {
+            return nil
+        }
+        typealias GetBrightnessFn = @convention(c) (UInt32, UnsafeMutablePointer<Float>) -> Int32
+        let fn = unsafeBitCast(sym, to: GetBrightnessFn.self)
+        var level: Float = 0
+        guard fn(CGMainDisplayID(), &level) == 0, level.isFinite else {
+            return nil
+        }
+        return Double(level)
+    }
+
+    private nonisolated static func setSystemDisplayBrightness(_ unitValue: Double) {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_LAZY),
+              let sym = dlsym(handle, "DisplayServicesSetBrightness") else {
+            return
+        }
+        typealias SetBrightnessFn = @convention(c) (UInt32, Float) -> Int32
+        let fn = unsafeBitCast(sym, to: SetBrightnessFn.self)
+        _ = fn(CGMainDisplayID(), Float(clampUnitValue(unitValue)))
     }
 
     private static func makeAddress(_ selector: AudioObjectPropertySelector, scope: AudioObjectPropertyScope) -> AudioObjectPropertyAddress {

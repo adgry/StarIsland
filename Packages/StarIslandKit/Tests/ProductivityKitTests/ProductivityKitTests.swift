@@ -419,4 +419,10 @@ final class ProductivityKitTests: XCTestCase {
         pdfContext.endPDFPage()
         pdfContext.closePDF()
     }
+
+    func testURLCleanerPreservesLegitimateFromQueryParamWhileStrippingTracking() {
+        let raw = "https://flights.example.com/search?from=SHA&to=PEK&utm_source=weibo&from_spmid=333.999"
+        let cleaned = URLCleaner.clean(raw)
+        XCTAssertEqual(cleaned, "https://flights.example.com/search?from=SHA&to=PEK")
+    }
 }

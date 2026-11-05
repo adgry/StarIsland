@@ -71,8 +71,9 @@ public struct ConnectIslandTabView: View {
             HStack(spacing: 6) {
                 Button(server.isRunning ? "刷新配对码" : "立即启动") {
                     if server.isRunning {
-                        server.refreshPIN()
+                        _ = server.refreshPIN()
                     } else {
+                        settingsStore.settings.enableLANContinuityServer = true
                         server.start()
                     }
                 }

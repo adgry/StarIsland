@@ -278,6 +278,29 @@ public struct SystemEnhanceSettingsPaneView: View {
                             .frame(width: 190, alignment: .leading)
                         Slider(value: $settingsStore.settings.holdCommandQDurationSeconds, in: 0.4...2.0, step: 0.1)
                     }
+
+                    HStack(spacing: 8) {
+                        Text("免长按白名单（已放行 \(settingsStore.settings.holdCommandQWhitelistedBundleIDs.count) 款应用）：")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Button("添加应用…") {
+                            chooseWhitelistedCommandQApp()
+                        }
+                        .controlSize(.mini)
+                        if !settingsStore.settings.holdCommandQWhitelistedBundleIDs.isEmpty {
+                            Button("清空") {
+                                settingsStore.settings.holdCommandQWhitelistedBundleIDs.removeAll()
+                            }
+                            .controlSize(.mini)
+                        }
+                        Spacer()
+                    }
+                    if !settingsStore.settings.holdCommandQWhitelistedBundleIDs.isEmpty {
+                        Text(settingsStore.settings.holdCommandQWhitelistedBundleIDs.joined(separator: " · "))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
                 }
 
                 Toggle("Finder 内支持 ⌘X 剪切文件并在目标目录按 ⌘V 直接移动（自动合成 ⌥⌘V）", isOn: $settingsStore.settings.enableFinderCutPaste)
@@ -495,5 +518,22 @@ public struct SystemEnhanceSettingsPaneView: View {
             }
         }
         settingsStore.settings.lockedAppBundleIDs = updated.sorted()
+    }
+
+    private func chooseWhitelistedCommandQApp() {
+        let panel = NSOpenPanel()
+        panel.title = "选择无需长按 ⌘Q 即可直接退出的应用"
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+
+        var updated = Set(settingsStore.settings.holdCommandQWhitelistedBundleIDs)
+        for url in panel.urls {
+            if let bid = Bundle(url: url)?.bundleIdentifier {
+                updated.insert(bid)
+            }
+        }
+        settingsStore.settings.holdCommandQWhitelistedBundleIDs = updated.sorted()
     }
 }
