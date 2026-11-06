@@ -375,8 +375,8 @@ final class ContinuityManager {
 
     private(set) var peers: [ContinuityPeer] = []
     private(set) var connectivity: ContinuityConnectivitySnapshot = .none
-    var connectedPeer: ContinuityPeer? { nil }
-    var activePeerID: String? { nil }
+    var connectedPeer: ContinuityPeer? { peers.first(where: { $0.linkState.isUsable }) }
+    var activePeerID: String? { connectedPeer?.id }
 
     let notificationBridge = ContinuityNotificationBridge()
     let liveActivityBridge = ContinuityExternalActivityBridge()
@@ -386,19 +386,79 @@ final class ContinuityManager {
     let callsBridge = ContinuityNotificationResponseBridgeStub()
     let focusModeManager = ContinuityFocusModeStub()
 
-    private init() {}
+    private init() {
+        StarIslandLANPortalServer.shared.onStateChanged = { [weak self] in
+            self?.syncFromPortal()
+        }
+    }
 
-    func startIfEnabled() {}
-    func stop() {}
+    func startIfEnabled() {
+        guard SettingsModel.shared.settings.continuityEnabled else {
+            stop()
+            return
+        }
+        if !StarIslandLANPortalServer.shared.isRunning {
+            StarIslandLANPortalServer.shared.start()
+        }
+        syncFromPortal()
+    }
+
+    func stop() {
+        if StarIslandLANPortalServer.shared.isRunning {
+            StarIslandLANPortalServer.shared.stop()
+        }
+        peers = []
+        connectivity = .none
+    }
+
+    private func syncFromPortal() {
+        let portal = StarIslandLANPortalServer.shared
+        let sessions = portal.connectedSessions
+        peers = sessions.map { s in
+            let peer = ContinuityPeer(record: ContinuityPairedPeer(id: s.id, name: s.deviceName, deviceType: .phone, addedAt: s.pairedAt, lastSeenAt: s.pairedAt))
+            peer.linkState = .connected
+            peer.capabilities = [.clipboard, .files, .media]
+            return peer
+        }
+        if let first = sessions.first {
+            connectivity = ContinuityConnectivitySnapshot(
+                severity: .healthy,
+                deviceName: first.deviceName,
+                linkState: .connected,
+                headline: "\(first.deviceName) 已连接",
+                detail: "\(portal.localIPAddress):\(portal.listeningPort)"
+            )
+        } else if portal.isRunning {
+            connectivity = ContinuityConnectivitySnapshot(
+                severity: .noDevice,
+                deviceName: "",
+                linkState: .nearby,
+                headline: "等待扫码配对",
+                detail: "PIN \(portal.currentPIN)"
+            )
+        } else {
+            connectivity = .none
+        }
+    }
+
     func openWidgets(focus: Int? = nil) {}
     func sendMediaCommand(_ action: ContinuityMediaAction, seekMs: Int? = nil) {}
-    func sendFiles(_ urls: [URL], toPeerID peerID: String) {}
+
+    func sendFiles(_ urls: [URL], toPeerID peerID: String) {
+        StarIslandLANPortalServer.shared.addSharedFiles(urls)
+        startIfEnabled()
+    }
+
     func dismissNotificationOnPhone(peerID: String, key: String) {}
     func invokeNotificationAction(peerID: String, key: String, actionId: String, replyText: String?) {}
     func takePhoto() {}
     func scanDocument() {}
     func setActivePeer(id: String) {}
-    func unpair(peerID: String) {}
+
+    func unpair(peerID: String) {
+        StarIslandLANPortalServer.shared.refreshPIN()
+        syncFromPortal()
+    }
 }
 
 @MainActor
@@ -409,7 +469,79 @@ final class ContinuityServicesProvider: NSObject {
 
 struct ContinuityNotchDetailView: View {
     @Binding var navigationStack: [NotchWidgetMode]
-    var body: some View { EmptyView() }
+    @ObservedObject private var portal = StarIslandLANPortalServer.shared
+
+    var body: some View {
+        HStack(spacing: 16) {
+            if let qr = portal.qrCodeImage {
+                Image(nsImage: qr)
+                    .interpolation(.none)
+                    .resizable()
+                    .frame(width: 96, height: 96)
+                    .padding(6)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Label("星岛跨端快传", systemImage: "iphone.radiowaves.left.and.right")
+                        .font(.system(size: 13, weight: .bold))
+                    Spacer()
+                    if !navigationStack.isEmpty {
+                        Button("返回") { _ = navigationStack.popLast() }
+                            .buttonStyle(.borderless)
+                            .font(.system(size: 11))
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Text("6 位安全码：")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Text(portal.currentPIN)
+                        .font(.system(size: 15, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.cyan)
+                    Button {
+                        portal.refreshPIN()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                Text(portal.isRunning ? portal.statusMessage : "点击启用局域网免装 App 扫码互传")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    Button(portal.isRunning ? "刷新服务" : "启动服务") {
+                        SettingsModel.shared.settings.continuityEnabled = true
+                        ContinuityManager.shared.startIfEnabled()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                    Button("添加共享文件…") {
+                        let panel = NSOpenPanel()
+                        panel.allowsMultipleSelection = true
+                        if panel.runModal() == .OK {
+                            portal.addSharedFiles(panel.urls)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(12)
+        .onAppear {
+            if SettingsModel.shared.settings.continuityEnabled && !portal.isRunning {
+                portal.start()
+            }
+        }
+    }
 }
 
 struct ContinuityExternalActivityDetailView: View {
@@ -418,8 +550,17 @@ struct ContinuityExternalActivityDetailView: View {
 }
 
 enum ContinuityNotchActivityView {
-    @ViewBuilder static func left(for snapshot: ContinuityConnectivitySnapshot) -> some View { EmptyView() }
-    @ViewBuilder static func right(for snapshot: ContinuityConnectivitySnapshot) -> some View { EmptyView() }
+    @ViewBuilder static func left(for snapshot: ContinuityConnectivitySnapshot) -> some View {
+        Image(systemName: "iphone.radiowaves.left.and.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(snapshot.severity.tint)
+    }
+
+    @ViewBuilder static func right(for snapshot: ContinuityConnectivitySnapshot) -> some View {
+        Text(snapshot.deviceName.isEmpty ? "互联" : snapshot.deviceName)
+            .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
+    }
 }
 
 enum ContinuityExternalActivityView {
