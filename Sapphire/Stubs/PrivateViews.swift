@@ -328,6 +328,12 @@ enum SubscriptionRevocationReason: String {
 }
 
 final class ScreenPerception {
-    func captureAnnotatedScreen() async -> (NSImage?, [String]) { (nil, []) }
+    func captureAnnotatedScreen() async -> (NSImage?, [String]) {
+        guard let cg = CGDisplayCreateImage(CGMainDisplayID()) else { return (nil, []) }
+        let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        let recognized = await CircleToSearchManager.shared.recognizeText(in: cg)
+        let lines = recognized.split(separator: "\n").map(String.init)
+        return (image, lines)
+    }
 }
 #endif

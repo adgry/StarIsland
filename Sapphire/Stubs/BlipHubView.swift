@@ -2,7 +2,6 @@
 //  BlipHubView.swift
 //  Sapphire
 //
-//  Created by Shariq Charolia on 2026-08-30
 
 #if !SAPPHIRE_FULL_BUILD
 import SwiftUI
@@ -15,11 +14,7 @@ struct BlipHubView: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "sparkles.rectangle.stack.fill").font(.system(size: 22))
-            Text("当前构建版本未包含 Blip").font(.caption)
-        }
-        .frame(width: 320)
+        IntelligenceNotchView(navigationStack: $navigationStack)
     }
 }
 #endif
