@@ -2,19 +2,16 @@
 //  PremiumFeatureKit.swift
 //  Sapphire
 //
-//  Created by Shariq Charolia on 2026-09-15
 
 #if !SAPPHIRE_FULL_BUILD
 import Combine
 import SwiftUI
 
 enum PremiumGate {
-    static func hasAccess(_ feature: AppFeature) -> Bool {
-        SubscriptionAccess.hasAccess(to: feature)
-    }
+    static func hasAccess(_ feature: AppFeature) -> Bool { true }
 
     static func isActive(_ feature: AppFeature?, enabled: Bool) -> Bool {
-        enabled && (feature.map(hasAccess) ?? true)
+        enabled
     }
 
     static var accessChanges: AnyPublisher<Void, Never> {
@@ -26,7 +23,7 @@ enum PremiumGate {
 
     @discardableResult
     static func require(_ feature: AppFeature, message: String? = nil) -> Bool {
-        FeatureGate.shared.require(feature, message: message ?? premiumDefaultMessage(for: feature))
+        true
     }
 }
 
@@ -40,19 +37,18 @@ struct PremiumFeatureView<Content: View>: View {
     }
 
     var body: some View {
-        content.disabled(true).opacity(0.45)
+        content
     }
 }
 
 extension View {
     func premiumFeature(_ feature: AppFeature, message: String? = nil) -> some View {
-        PremiumFeatureView(feature: feature, message: message) { self }
+        self
     }
 }
 
 func premiumDefaultMessage(for feature: AppFeature) -> String {
-    let tier = SubscriptionFeatureCatalog.minimumTier(for: feature)
-    return "此功能需要 Sapphire \(SubscriptionFeatureCatalog.tierDisplayName(tier))。"
+    "星岛旗舰版已解锁此功能。"
 }
 
 extension SettingsModel {
@@ -60,15 +56,12 @@ extension SettingsModel {
         $settings
             .map(enabled)
             .removeDuplicates()
-            .combineLatest(PremiumGate.accessChanges.prepend(()))
-            .map { isOn, _ in isOn && PremiumGate.hasAccess(feature) }
-            .removeDuplicates()
             .dropFirst()
             .eraseToAnyPublisher()
     }
 
     func isPremiumActive(_ feature: AppFeature, _ enabled: (Settings) -> Bool) -> Bool {
-        PremiumGate.isActive(feature, enabled: enabled(settings))
+        enabled(settings)
     }
 }
 
@@ -83,9 +76,7 @@ extension WidgetType {
         }
     }
 
-    var isPremiumLocked: Bool {
-        requiredPremiumFeature.map { !PremiumGate.hasAccess($0) } ?? false
-    }
+    var isPremiumLocked: Bool { false }
 }
 
 extension LiveActivityType {
@@ -97,8 +88,6 @@ extension LiveActivityType {
         }
     }
 
-    var isPremiumLocked: Bool {
-        requiredPremiumFeature.map { !PremiumGate.hasAccess($0) } ?? false
-    }
+    var isPremiumLocked: Bool { false }
 }
 #endif

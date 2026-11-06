@@ -10610,7 +10610,7 @@ struct AboutSettingsView: View {
                         .onTapGesture { handleDebugIconTap() }
                         .help(debugMode.isEnabled ? "调试模式已开启 — 快速连点 5 次以关闭" : "快速连点 5 次以开启调试模式")
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Sapphire").font(.largeTitle.weight(.bold))
+                        Text("星岛 StarIsland").font(.largeTitle.weight(.bold))
                         Text(versionLabel).foregroundStyle(.secondary).textSelection(.enabled)
 
                         if debugMode.isEnabled {
@@ -10673,7 +10673,7 @@ struct AboutSettingsView: View {
                     }
                 }.modifier(SettingsContainerModifier()).onAppear(perform: permissionsManager.checkAllPermissions)
 
-                Text("© 2025 Shariq Charolia。保留所有权利。").font(.caption).foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .center).padding(.top, 20)
+                Text("星岛 StarIsland · 基于 GNU AGPLv3 开源协议构建（致敬上游 Sapphire 架构）").font(.caption).foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .center).padding(.top, 20)
             }.padding(25).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .onAppear {
                 ReleaseChannelPolicy.reconcileStoredPreference(&settingsModel.settings.value)

@@ -2,7 +2,6 @@
 //  SubscriptionCore.swift
 //  Sapphire
 //
-//  Created by Shariq Charolia on 2026-08-30
 
 #if !SAPPHIRE_FULL_BUILD
 import Foundation
@@ -11,7 +10,6 @@ import SwiftUI
 
 public enum SubscriptionTier: String, Codable, CaseIterable {
     case free, basic, pro, ultra
-
     case core
 }
 
@@ -40,60 +38,83 @@ public struct SubscriptionEntitlements: Codable, Equatable {
     public var expiresAt: Date?
 
     public static let free = SubscriptionEntitlements(tier: .free, features: [], expiresAt: nil)
+    public static let ultra = SubscriptionEntitlements(
+        tier: .ultra,
+        features: Set(AppFeature.allCases),
+        expiresAt: nil
+    )
 }
 
 public enum SubscriptionFeatureCatalog {
-    public static func features(for tier: SubscriptionTier) -> Set<AppFeature> { [] }
-    public static func minimumTier(for feature: AppFeature) -> SubscriptionTier { .free }
+    public static func features(for tier: SubscriptionTier) -> Set<AppFeature> {
+        Set(AppFeature.allCases)
+    }
+
+    public static func minimumTier(for feature: AppFeature) -> SubscriptionTier {
+        .free
+    }
+
     public static func tierDisplayName(_ tier: SubscriptionTier) -> String {
         switch tier {
         case .free: return "免费版"
         case .basic: return "基础版"
-        case .pro: return "Pro"
-        case .ultra: return "Ultra"
+        case .pro: return "专业版"
+        case .ultra: return "旗舰版"
         case .core: return "核心版"
         }
     }
-    public static func marketingSubtitle(for tier: SubscriptionTier) -> String { "包含 Sapphire 核心灵动岛体验。" }
+
+    public static func marketingSubtitle(for tier: SubscriptionTier) -> String {
+        "星岛旗舰版已永久解锁全部 46 项高级特性，无任何内购或订阅限制。"
+    }
+
     public static func marketingTierHighlights() -> [(tier: SubscriptionTier, features: [String])] {
         [
-            (tier: .free, features: ["核心灵动岛体验"]),
-            (tier: .basic, features: ["无限制实时活动"]),
-            (tier: .pro, features: ["全部小组件与自动化"]),
-            (tier: .ultra, features: ["全部功能，外加测试版更新"])
+            (tier: .ultra, features: [
+                "全部灵动岛小组件、实时活动与视觉形变引擎",
+                "体育实时比分、全球财经行情与多模型 AI 助手",
+                "跨端局域网双向快传、Touch ID 应用锁与系统增强套件"
+            ])
         ]
     }
 }
 
 public enum SubscriptionAccess {
-    public static func hasAccess(to feature: AppFeature) -> Bool { false }
-    public static func resolvedTier() -> SubscriptionTier { .free }
-    public static func intelligenceDailyRunLimit() -> Int { 8 }
+    public static func hasAccess(to feature: AppFeature) -> Bool { true }
+    public static func resolvedTier() -> SubscriptionTier { .ultra }
+    public static func intelligenceDailyRunLimit() -> Int { Int.max }
 }
 
 public final class SubscriptionManager: ObservableObject {
     public static let shared = SubscriptionManager()
 
-    public var tierGradientColors: [Color] { [.gray, .gray.opacity(0.6)] }
-    public var userInitials: String { "访" }
-    public var tierLabel: String { "免费版" }
+    public var tierGradientColors: [Color] {
+        [Color(red: 0.30, green: 0.56, blue: 1.00), Color(red: 0.62, green: 0.36, blue: 0.98)]
+    }
+    public var userInitials: String { "星" }
+    public var tierLabel: String { "全功能永久解锁" }
 
-    @Published public private(set) var entitlements: SubscriptionEntitlements = .free
-    @Published public private(set) var accessibleFeatures: Set<AppFeature> = []
+    @Published public private(set) var entitlements: SubscriptionEntitlements = .ultra
+    @Published public private(set) var accessibleFeatures: Set<AppFeature> = Set(AppFeature.allCases)
 
     public init() {}
 
-    public var activeTier: SubscriptionTier { entitlements.tier }
-    public var hasCorePlan: Bool { activeTier == .core }
-    public var isSignedIn: Bool { false }
-    public var userDisplayName: String { "访客" }
-    public var hasBetaSoftwareAccess: Bool { false }
+    public var activeTier: SubscriptionTier { .ultra }
+    public var hasCorePlan: Bool { true }
+    public var isSignedIn: Bool { true }
+    public var userDisplayName: String { "星岛旗舰版" }
+    public var hasBetaSoftwareAccess: Bool { true }
 
-    public func hasAccess(to feature: AppFeature) -> Bool { SubscriptionAccess.hasAccess(to: feature) }
-    public func isFeatureEnabled(_ feature: AppFeature) -> Bool { SubscriptionAccess.hasAccess(to: feature) }
-    public func applyLicensedTier(_ tier: SubscriptionTier) {}
-    public func intelligenceDailyRunLimit() -> Int { 8 }
-    public func bootstrap(onCachedAccessReady: (@MainActor () -> Void)? = nil) async { await onCachedAccessReady?() }
+    public func hasAccess(to feature: AppFeature) -> Bool { true }
+    public func isFeatureEnabled(_ feature: AppFeature) -> Bool { true }
+    public func applyLicensedTier(_ tier: SubscriptionTier) {
+        entitlements = .ultra
+        accessibleFeatures = Set(AppFeature.allCases)
+    }
+    public func intelligenceDailyRunLimit() -> Int { Int.max }
+    public func bootstrap(onCachedAccessReady: (@MainActor () -> Void)? = nil) async {
+        await onCachedAccessReady?()
+    }
     public func validateSubscriptionStatus() async {}
 }
 
@@ -104,15 +125,7 @@ public final class FeatureGate {
 
     @discardableResult
     public func require(_ feature: AppFeature, message: String) -> Bool {
-        let post = {
-            NotificationCenter.default.post(
-                name: .subscriptionPaywallRequested,
-                object: nil,
-                userInfo: ["message": message, "feature": feature.rawValue]
-            )
-        }
-        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
-        return false
+        true
     }
 }
 
