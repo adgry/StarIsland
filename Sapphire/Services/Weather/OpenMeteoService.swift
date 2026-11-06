@@ -1,0 +1,393 @@
+//
+//  OpenMeteoService.swift
+//  Sapphire
+//
+//  Created by Shariq Charolia on 2026-08-10
+
+import Foundation
+import CoreLocation
+
+// MARK: - Response Models
+
+private struct OpenMeteoResponse: Decodable {
+    let current: CurrentWeather?
+    let hourly: HourlyWeather?
+    let daily: DailyWeather?
+
+    struct CurrentWeather: Decodable {
+        let time: String?
+        let temperature2m: Double?
+        let apparentTemperature: Double?
+        let relativeHumidity2m: Int?
+        let windspeed10m: Double?
+        let weathercode: Int?
+        let isDay: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case time
+            case temperature2m         = "temperature_2m"
+            case apparentTemperature   = "apparent_temperature"
+            case relativeHumidity2m    = "relative_humidity_2m"
+            case windspeed10m          = "windspeed_10m"
+            case weathercode
+            case isDay                 = "is_day"
+        }
+    }
+
+    struct HourlyWeather: Decodable {
+        let time: [String]?
+        let temperature2m: [Double?]?
+        let weathercode: [Int?]?
+
+        enum CodingKeys: String, CodingKey {
+            case time
+            case temperature2m  = "temperature_2m"
+            case weathercode
+        }
+    }
+
+    struct DailyWeather: Decodable {
+        let time: [String]?
+        let weathercode: [Int?]?
+        let temperature2mMax: [Double?]?
+        let temperature2mMin: [Double?]?
+        let precipitationProbabilityMax: [Int?]?
+        let sunrise: [String]?
+        let sunset: [String]?
+        let uvIndexMax: [Double?]?
+
+        enum CodingKeys: String, CodingKey {
+            case time
+            case weathercode
+            case temperature2mMax              = "temperature_2m_max"
+            case temperature2mMin              = "temperature_2m_min"
+            case precipitationProbabilityMax   = "precipitation_probability_max"
+            case sunrise
+            case sunset
+            case uvIndexMax                    = "uv_index_max"
+        }
+    }
+}
+
+// MARK: - WMO Weather Code Mapping
+
+private func wmcCodeToTWCIcon(_ wmo: Int, isDay: Bool) -> Int {
+    switch wmo {
+    case 0:          return isDay ? 32 : 31
+    case 1:          return isDay ? 34 : 33
+    case 2:          return isDay ? 30 : 29
+    case 3:          return 26
+    case 45, 48:     return 20
+    case 51, 53:     return 9
+    case 55:         return 9
+    case 56, 57:     return 8
+    case 61:         return 11
+    case 63:         return 12
+    case 65:         return 40
+    case 66, 67:     return 6
+    case 71:         return 13
+    case 73:         return 14
+    case 75:         return 16
+    case 77:         return 16
+    case 80:         return 39
+    case 81:         return 11
+    case 82:         return 12
+    case 85, 86:     return 42
+    case 95:         return isDay ? 37 : 47
+    case 96, 99:     return 3
+    default:         return 44
+    }
+}
+
+private func wmcDescription(_ wmo: Int) -> String {
+    switch wmo {
+    case 0:      return "晴"
+    case 1:      return "大部晴朗"
+    case 2:      return "局部多云"
+    case 3:      return "阴"
+    case 45:     return "雾"
+    case 48:     return "冻雾"
+    case 51:     return "小毛毛雨"
+    case 53:     return "毛毛雨"
+    case 55:     return "浓毛毛雨"
+    case 56, 57: return "冻毛毛雨"
+    case 61:     return "小雨"
+    case 63:     return "雨"
+    case 65:     return "大雨"
+    case 66, 67: return "冻雨"
+    case 71:     return "小雪"
+    case 73:     return "雪"
+    case 75:     return "大雪"
+    case 77:     return "雪粒"
+    case 80:     return "小阵雨"
+    case 81:     return "阵雨"
+    case 82:     return "强阵雨"
+    case 85, 86: return "阵雪"
+    case 95:     return "雷暴"
+    case 96, 99: return "雷暴伴冰雹"
+    default:     return "未知"
+    }
+}
+
+// MARK: - Service
+
+enum OpenMeteoServiceError: LocalizedError {
+    case invalidURL
+    case networkError(Error)
+    case decodingError(Error)
+    case noData
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:              return "Open-Meteo 地址无效。"
+        case .networkError(let e):     return e.localizedDescription
+        case .decodingError(let e):    return "无法解析 Open-Meteo 响应：\(e.localizedDescription)"
+        case .noData:                  return "未获取到 Open-Meteo 天气数据。"
+        }
+    }
+}
+
+@MainActor
+final class OpenMeteoService {
+
+    static let shared = OpenMeteoService()
+    private let session: URLSession
+
+    private init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 10
+        config.timeoutIntervalForResource = 15
+        session = URLSession(configuration: config)
+    }
+
+    private static let localISOFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        return f
+    }()
+
+    private static let displayTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.timeStyle = .short
+        return f
+    }()
+
+    private static let hourlyFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "HH时"
+        return f
+    }()
+
+    private static let dayOfWeekFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = "EEE"
+        return f
+    }()
+
+    private static let dayInputFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    func fetchWeather(
+        for location: CLLocation,
+        locationName: String
+    ) async throws -> ProcessedWeatherData {
+        let lat = location.coordinate.latitude
+        let lon = location.coordinate.longitude
+
+        var components = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
+        components.queryItems = [
+            .init(name: "latitude",              value: String(format: "%.4f", lat)),
+            .init(name: "longitude",             value: String(format: "%.4f", lon)),
+            .init(name: "current",               value: "temperature_2m,apparent_temperature,relative_humidity_2m,windspeed_10m,weathercode,is_day"),
+            .init(name: "hourly",                value: "temperature_2m,weathercode"),
+            .init(name: "daily",                 value: "weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max"),
+            .init(name: "temperature_unit",      value: "celsius"),
+            .init(name: "windspeed_unit",        value: "kmh"),
+            .init(name: "precipitation_unit",    value: "mm"),
+            .init(name: "timezone",              value: "auto"),
+            .init(name: "forecast_days",         value: "7"),
+            .init(name: "hourly_steps",          value: "1"),
+            .init(name: "forecast_hours",        value: "8"),
+        ]
+
+        guard let url = components.url else { throw OpenMeteoServiceError.invalidURL }
+
+        let data: Data
+        do {
+            let (d, response) = try await session.data(from: url)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else {
+                throw URLError(.badServerResponse)
+            }
+            data = d
+        } catch {
+            throw OpenMeteoServiceError.networkError(error)
+        }
+
+        let response: OpenMeteoResponse
+        do {
+            response = try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
+        } catch {
+            throw OpenMeteoServiceError.decodingError(error)
+        }
+
+        return try process(response: response, locationName: locationName)
+    }
+
+    // MARK: - Processing
+
+    private func process(
+        response: OpenMeteoResponse,
+        locationName: String
+    ) throws -> ProcessedWeatherData {
+        guard let current = response.current,
+              let tempC = current.temperature2m else {
+            throw OpenMeteoServiceError.noData
+        }
+
+        let isDay      = (current.isDay ?? 1) == 1
+        let wmoCode    = current.weathercode ?? 0
+        let twcIcon    = wmcCodeToTWCIcon(wmoCode, isDay: isDay)
+        let feelsC     = current.apparentTemperature ?? tempC
+        let humidity   = current.relativeHumidity2m ?? 0
+        let windKmh    = Int((current.windspeed10m ?? 0).rounded())
+        let windMph    = Int(((current.windspeed10m ?? 0) * 0.621371).rounded())
+
+        let tempF    = celsiusToFahrenheit(tempC)
+        let feelsF   = celsiusToFahrenheit(feelsC)
+
+        let daily      = response.daily
+        let todayMaxC  = daily?.temperature2mMax?.first.flatMap { $0 } ?? tempC
+        let todayMinC  = daily?.temperature2mMin?.first.flatMap { $0 } ?? tempC
+        let todayMaxF  = celsiusToFahrenheit(todayMaxC)
+        let todayMinF  = celsiusToFahrenheit(todayMinC)
+        let precipPct  = daily?.precipitationProbabilityMax?.first.flatMap { $0 } ?? 0
+        let uvRaw      = daily?.uvIndexMax?.first.flatMap { $0 } ?? 0
+        let uvDesc     = uvDescription(uvRaw)
+
+        let sunriseStr = formatISOTime(daily?.sunrise?.first ?? "")
+        let sunsetStr  = formatISOTime(daily?.sunset?.first ?? "")
+
+        let dailyForecasts: [DailyForecastUIData] = buildDailyForecasts(from: daily)
+
+        let hourlyForecasts: [HourlyForecastUIData] = buildHourlyForecasts(from: response.hourly, isDay: isDay)
+
+        return ProcessedWeatherData(
+            locationName:       locationName,
+            temperature:        tempF,
+            temperatureMetric:  Int(tempC.rounded()),
+            highTemp:           todayMaxF,
+            highTempMetric:     Int(todayMaxC.rounded()),
+            lowTemp:            todayMinF,
+            lowTempMetric:      Int(todayMinC.rounded()),
+            conditionDescription: wmcDescription(wmoCode),
+            iconCode:           twcIcon,
+            feelsLike:          feelsF,
+            feelsLikeMetric:    Int(feelsC.rounded()),
+            windInfo:           "\(windMph) mph",
+            windInfoMetric:     "\(windKmh) km/h",
+            humidity:           "\(humidity)%",
+            precipChance:       precipPct,
+            uvIndex:            "\(Int(uvRaw.rounded())) (\(uvDesc))",
+            sunriseTime:        sunriseStr,
+            sunsetTime:         sunsetStr,
+            visibility:         "-- mi",
+            visibilityMetric:   "-- km",
+            pressure:           "-- in",
+            pressureMetric:     "-- hPa",
+            dailyForecasts:     dailyForecasts,
+            hourlyForecasts:    hourlyForecasts,
+            isAvailable:        true
+        )
+    }
+
+    // MARK: - Helpers
+
+    private func celsiusToFahrenheit(_ c: Double) -> Int {
+        Int((c * 9.0 / 5.0 + 32).rounded())
+    }
+
+    private func uvDescription(_ uv: Double) -> String {
+        switch uv {
+        case ..<3:   return "低"
+        case ..<6:   return "中等"
+        case ..<8:   return "高"
+        case ..<11:  return "很高"
+        default:     return "极高"
+        }
+    }
+
+    private func formatISOTime(_ iso: String) -> String {
+        guard !iso.isEmpty else { return "--:--" }
+        let normalized = iso.count >= 16 ? String(iso.prefix(16)) : iso
+        if let date = Self.localISOFormatter.date(from: normalized) {
+            return Self.displayTimeFormatter.string(from: date)
+        }
+        return "--:--"
+    }
+
+    private func buildDailyForecasts(
+        from daily: OpenMeteoResponse.DailyWeather?
+    ) -> [DailyForecastUIData] {
+        guard let daily, let times = daily.time, times.count > 1 else { return [] }
+        var results: [DailyForecastUIData] = []
+        for i in 1..<min(times.count, 7) {
+            let maxC = element(at: i, in: daily.temperature2mMax) ?? 0
+            let minC = element(at: i, in: daily.temperature2mMin) ?? 0
+            let wmo  = element(at: i, in: daily.weathercode) ?? 0
+            let dow  = dowAbbreviation(from: times[i])
+            results.append(DailyForecastUIData(
+                dayOfWeek:      dow,
+                iconName:       WeatherIconMapper.map(from: wmcCodeToTWCIcon(wmo, isDay: true)),
+                highTemp:       celsiusToFahrenheit(maxC),
+                lowTemp:        celsiusToFahrenheit(minC),
+                highTempMetric: Int(maxC.rounded()),
+                lowTempMetric:  Int(minC.rounded())
+            ))
+        }
+        return results
+    }
+
+    private func buildHourlyForecasts(
+        from hourly: OpenMeteoResponse.HourlyWeather?,
+        isDay: Bool
+    ) -> [HourlyForecastUIData] {
+        guard let hourly, let times = hourly.time else { return [] }
+        let startOfCurrentHour = Calendar.current.dateInterval(of: .hour, for: Date())?.start ?? Date()
+        var results: [HourlyForecastUIData] = []
+
+        for i in 0..<times.count {
+            let timeStr = times[i].count >= 16 ? String(times[i].prefix(16)) : times[i]
+            guard let date = Self.localISOFormatter.date(from: timeStr), date >= startOfCurrentHour else { continue }
+            let tempC = element(at: i, in: hourly.temperature2m) ?? 0
+            let wmo   = element(at: i, in: hourly.weathercode) ?? 0
+            results.append(HourlyForecastUIData(
+                time:             Self.hourlyFormatter.string(from: date).uppercased(),
+                iconName:         WeatherIconMapper.map(from: wmcCodeToTWCIcon(wmo, isDay: isDay)),
+                temperature:      "\(celsiusToFahrenheit(tempC))°",
+                temperatureMetric: "\(Int(tempC.rounded()))°"
+            ))
+            if results.count == 8 { break }
+        }
+        return results
+    }
+
+    private func dowAbbreviation(from isoDate: String) -> String {
+        guard let date = Self.dayInputFormatter.date(from: isoDate) else { return "---" }
+        return Self.dayOfWeekFormatter.string(from: date).uppercased()
+    }
+
+    private func element<T>(at index: Int, in values: [T?]?) -> T? {
+        guard let values, values.indices.contains(index) else { return nil }
+        return values[index]
+    }
+}

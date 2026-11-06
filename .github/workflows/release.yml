@@ -1,51 +1,151 @@
-name: 构建并发布星岛 StarIsland
+name: Build and Publish Sapphire Release
 
 on:
   push:
     tags:
-      - "v*"
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: "发布版本号（如 1.0.1）"
-        required: true
-        default: "1.0.1"
+        description: '发布版本号（如 3.6，留空则读取根目录 VERSION 文件）'
+        required: false
+        default: ''
+      release_notes:
+        description: '版本更新说明'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: macOS arm64 构建签名与发布
-    runs-on: macos-15
+    name: Build macOS Release & Upload Asset
+    runs-on: macos-26
     steps:
-      - name: 检出源码
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: 运行全量单元测试
-        run: |
-          cd Packages/StarIslandKit
-          swift test
-
-      - name: 解析版本号并构建安装包
-        id: build
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VER="${{ inputs.version }}"
-          else
-            VER="${GITHUB_REF_NAME#v}"
-          fi
-          chmod +x scripts/build_app.sh scripts/generate_icon.swift
-          ./scripts/build_app.sh "$VER"
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
-
-      - name: 发布至 GitHub Releases
-        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.build.outputs.tag }}
-          name: 星岛 StarIsland ${{ steps.build.outputs.tag }}
-          files: |
-            dist/release-${{ steps.build.outputs.version }}/StarIsland-arm64.zip
-            dist/release-${{ steps.build.outputs.version }}/StarIsland-arm64.zip.sha256
-          generate_release_notes: true
+          fetch-depth: 0
+
+      - name: Resolve target version & check existing release
+        id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [[ -n "$INPUT_VERSION" ]]; then
+            RAW_VER="$INPUT_VERSION"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            RAW_VER="${GITHUB_REF_NAME}"
+          else
+            RAW_VER="$(tr -d '[:space:]' < VERSION)"
+          fi
+          CLEAN_VER="${RAW_VER#v}"
+          CLEAN_VER="${CLEAN_VER#V}"
+          TAG="v${CLEAN_VER}"
+          echo "version=${CLEAN_VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          # 如果是修改 VERSION 推送到 main，且对应 Release 已包含 Sapphire-arm64.zip（例如已通过本地 scripts/release.sh 上传），则跳过重复构建
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -q '^Sapphire-arm64\.zip$'; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          # 如果是推送 tag 触发，但本地脚本刚刚已经把 Sapphire-arm64.zip 传上去了，也智能跳过重复耗费云端时长
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            sleep 5
+            if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -q '^Sapphire-arm64\.zip$'; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Select latest Xcode
+        if: steps.meta.outputs.skip != 'true'
+        run: |
+          if ls -d /Applications/Xcode_26*.app >/dev/null 2>&1; then
+            LATEST_XCODE="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)"
+            sudo xcode-select -s "$LATEST_XCODE"
+          fi
+          xcodebuild -version
+
+      - name: Sync MARKETING_VERSION & CURRENT_PROJECT_VERSION in project.pbxproj
+        if: steps.meta.outputs.skip != 'true'
+        run: |
+          python3 - "Sapphire.xcodeproj/project.pbxproj" "${{ steps.meta.outputs.version }}" <<'PY'
+          import re, sys
+          pbxproj_path, new_version = sys.argv[1], sys.argv[2]
+          nums = [int(x) for x in re.findall(r"\d+", new_version)]
+          while len(nums) < 3:
+              nums.append(0)
+          build_number = max(2, nums[0] * 10000 + nums[1] * 100 + nums[2])
+          with open(pbxproj_path, "r", encoding="utf-8") as f:
+              content = f.read()
+          pattern = re.compile(
+              r"(MARKETING_VERSION = )([^;]+)(;[\s\S]{0,400}?PRODUCT_BUNDLE_IDENTIFIER = com\.cshariq\.sapphire;)"
+          )
+          updated, count = pattern.subn(rf"\g<1>{new_version}\g<3>", content)
+          if count == 0:
+              raise SystemExit("Failed to update MARKETING_VERSION")
+          build_pattern = re.compile(
+              r"(CODE_SIGN_ENTITLEMENTS = Sapphire/Sapphire(?:Debug)?\.entitlements;[\s\S]{0,300}?CURRENT_PROJECT_VERSION = )([^;]+)(;)"
+          )
+          updated, build_count = build_pattern.subn(rf"\g<1>{build_number}\g<3>", updated)
+          if build_count == 0:
+              raise SystemExit("Failed to update CURRENT_PROJECT_VERSION")
+          with open(pbxproj_path, "w", encoding="utf-8") as f:
+              f.write(updated)
+          PY
+
+      - name: Build Sapphire (Release arm64)
+        if: steps.meta.outputs.skip != 'true'
+        run: |
+          xcodebuild \
+            -project Sapphire.xcodeproj \
+            -scheme Sapphire \
+            -configuration Release \
+            -destination "platform=macOS,arch=arm64" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            ENABLE_DEBUG_DYLIB=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_REQUIRED=NO \
+            build
+
+      - name: Ad-hoc sign & package Sapphire-arm64.zip
+        if: steps.meta.outputs.skip != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/package"
+          ditto "$RUNNER_TEMP/DerivedData/Build/Products/Release/Sapphire.app" "$RUNNER_TEMP/package/Sapphire.app"
+          xattr -cr "$RUNNER_TEMP/package/Sapphire.app" || true
+          codesign --force --deep --sign - "$RUNNER_TEMP/package/Sapphire.app"
+          codesign --force --sign - \
+            --identifier com.shariq.sapphireHelper \
+            --entitlements "com.shariq.sapphireHelper/sapphireHelper.entitlements" \
+            "$RUNNER_TEMP/package/Sapphire.app/Contents/MacOS/com.shariq.sapphireHelper"
+          codesign --force --sign - --entitlements "scripts/SapphireAdHoc.entitlements" "$RUNNER_TEMP/package/Sapphire.app"
+          cd "$RUNNER_TEMP/package"
+          COPYFILE_DISABLE=1 /usr/bin/zip -qryy "Sapphire-arm64.zip" "Sapphire.app"
+          ls -lh "Sapphire-arm64.zip"
+
+      - name: Publish GitHub Release
+        if: steps.meta.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          CUSTOM_NOTES: ${{ github.event.inputs.release_notes }}
+        run: |
+          ZIP_PATH="$RUNNER_TEMP/package/Sapphire-arm64.zip"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP_PATH" --clobber
+          else
+            if [[ -n "$CUSTOM_NOTES" ]]; then
+              gh release create "$TAG" "$ZIP_PATH" --title "Sapphire ${TAG}" --notes "$CUSTOM_NOTES"
+            else
+              gh release create "$TAG" "$ZIP_PATH" --title "Sapphire ${TAG}" --generate-notes
+            fi
+          fi
