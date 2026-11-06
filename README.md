@@ -1,117 +1,54 @@
 <div align="center">
-<img width="220" height="220" alt="Group 31" src="https://github.com/user-attachments/assets/1e3ef88f-9849-4896-88d2-5294841a0062" />
 
-  <h1>Sapphire</h1>
-  <p><b>重新定义灵动岛的全能型 Mac 应用</b></p>
-  <a href="https://sapphire-app.tech" style="text-decoration: none; margin-right: 10px;">
-    <div style="background-color: #007aff; color: white; padding: 10px 20px; border-radius: 8px; display: inline-block; font-weight: bold;">
-      官方网站
-    </div>
-  </a>
-  <a href="https://github.com/adgry/Sapphire-CN/releases/latest" style="text-decoration: none;">
-    <div style="background-color: #007aff; color: white; padding: 10px 20px; border-radius: 8px; display: inline-block; font-weight: bold;">
-      下载最新版本
-    </div>
-  </a>
-  <a href="https://discord.gg/Ryuea8vM2h" style="text-decoration: none;">
-    <div style="background-color: #007aff; color: white; padding: 10px 20px; border-radius: 8px; display: inline-block; font-weight: bold;">
-      加入 Discord
-    </div>
-  </a>
+  <h1>星岛 StarIsland</h1>
+  <p><b>专为 macOS 打造的全功能旗舰版灵动岛工作台（100% 原生简体中文 · 全特性永久解锁）</b></p>
+  <p>
+    <a href="https://github.com/adgry/StarIsland/releases/latest"><b>下载最新版本 (StarIsland-arm64.zip)</b></a>
+    ·
+    <a href="https://github.com/adgry/StarIsland/releases"><b>版本发布历史</b></a>
+  </p>
+
 </div>
 
-<br>
+---
 
-Sapphire 是一款精致优雅的灵动岛应用，可在新款 MacBook 的灵动岛区域整洁地展示当前活动状态。同时它还内置了一系列实用功能，从支持便捷文件传输的附近分享兼容能力，到灵活多样的窗口磁吸分区系统，应有尽有。
+**星岛 (`StarIsland.app`)** 是面向 Apple Silicon Mac 深度重构与增强的全能型灵动岛应用。完整保留原厂级 60/120fps 流体刘海动画、11 步沉浸式开机向导、250pt 毛玻璃分层设置中心与可视化拖拽工作区编辑器，同时将全部 **48 项旗舰级特性** 替换为无需登录、无订阅墙、开箱即用的本地真实引擎，并彻底修复权限授权、后台辅助服务与验证码误报痛点。
+
+## 核心亮点
+
+- **100% 原厂级交互与视觉体验**：完整保留灵动岛流体形变引擎、实时活动双翼、可视化小组件与顶栏拖拽编排器、14 段实机功能预览动画与 41 个精细化中文设置面板。
+- **全功能永久解锁（零付费墙 / 零账号绑定）**：
+  - **多通道 AI 灵动助手与画圈搜屏 OCR**：内置 Gemini、DeepSeek、通义千问、OpenRouter、OpenAI、Claude 及免 Key 本地 Ollama 通道，搭配离线中英双语 Vision 框选识屏。
+  - **免 Key 体育记分牌与实时财经行情**：直连 ESPN 多联赛实时比分与 Yahoo Finance / Binance 股票加密货币迷你走势折线。
+  - **应用级 8D 环绕声与全景声场扩展**：基于 CoreAudio Process Tap 的单应用独立音量、多段均衡器（EQ）、8D 旋转声场与双耳互馈环绕声。
+  - **智能收件箱双因子验证码识别**：上下文语义 + 强排除规则精准提取短信/邮件验证码，彻底杜绝 Discord 频道消息（如 `3068`）、年份与订单号误弹窗，支持 SHA-256 持久化去重。
+  - **Touch ID 应用隐私锁护盾**：基于 `LocalAuthentication` 生物识别与加盐 SHA-256 备用密码的全屏毛玻璃遮蔽保护。
+  - **局域网扫码快传门户（6 位一次性配对码）**：手机或平板浏览器扫码即可双向同步剪贴板、快传照片文件至「下载」目录并遥控媒体播放，无需安装手机端 App。
+  - **效率与系统增强全家桶**：磁盘空间扫描与安全回收工作区、图片/PDF 瘦身与文字提取、DMG 静默挂载安装、程序坞布局快照、链接追踪参数净化、文本片段展开及键鼠防抖优化。
+- **四大核心痛点根治**：
+  - **本地网络授权**：主动发起 `_starisland._tcp` Bonjour 局域网探测触发 macOS 原生系统弹窗，并支持一键跳转系统设置与重试。
+  - **自动化权限按需温和请求**：不再强行拉起已禁用的「音乐.app」，彻底消除系统报错弹窗。
+  - **后台辅助服务优雅降级**：支持本地开发证书双层签名，未安装特权守护进程时亦可一键跳过并流畅使用全部主程序功能。
+  - **软件内 GitHub 自动更新**：原生接入 `adgry/StarIsland` Releases 标准 SemVer 检查，支持一键下载 `StarIsland-arm64.zip`、SHA-256 校验、覆盖安装与自动重启。
 
 ## 安装指南
 
-1.  **下载：** 从 [版本发布页面](https://github.com/adgry/Sapphire-CN/releases/latest) 下载最新的 `Sapphire-arm64.zip` 安装包。
-2.  **安装：** 解压后将 `Sapphire.app` 拖入 `/Applications`（应用程序）文件夹并打开。
-3.  **权限配置：** 首次启动时，你可能需要在 `系统设置` 中授予辅助功能及其他相关权限，以确保所有功能正常运行。
+1. 前往 [GitHub Releases](https://github.com/adgry/StarIsland/releases/latest) 下载最新的 `StarIsland-arm64.zip`。
+2. 解压后将 `StarIsland.app` 拖入 `/Applications`（应用程序）目录并打开。
+3. 按照首次启动向导按需授予辅助功能、通知与屏幕录制等权限即可开始使用。
 
-## 软件内自动更新与版本发布说明
+## 本地构建与一键发版
 
-本仓库（`adgry/Sapphire-CN`）已接入软件内自动更新通道。每当本仓库发布高于当前客户端版本的新 GitHub Release（附带 `Sapphire-arm64.zip`）后，已安装的客户端会在后台定时检查、唤醒检查或手动点击 **“设置 → 关于 → 检查更新”** 时收到更新提醒，并支持一键下载、覆盖安装与自动重启。
+环境要求：macOS 14.2+（Apple Silicon `arm64`）、Xcode 16+、GitHub CLI (`gh`)。
 
-后续修改代码后发布新版本有两种方式：
+```bash
+# 仅本地编译并双层签名生成 dist/release-2.0.0/StarIsland.app 与安装包
+./scripts/release.sh 2.0.0 --build-only
 
-1. **本地一键编译发版（推荐，速度最快）：**
-   ```bash
-   ./scripts/release.sh 3.6 "本次更新说明"
-   ```
-   脚本会自动更新 `VERSION` 与 Xcode 工程中的主应用版本号、编译 `Release` 版 `Sapphire.app`、完成签名与 `Sapphire-arm64.zip` 打包、推送代码与 `v3.6` 标签，并直接发布到 GitHub Releases。
+# 一键更新版本号、编译签名、推送代码并发布至 GitHub Releases
+./scripts/release.sh 2.0.0 "星岛 StarIsland v2.0.0 全功能旗舰版发布"
+```
 
-2. **GitHub 云端自动构建发版（GitHub Actions）：**
-   - 在本地或网页端创建并推送以 `v` 开头的版本标签（例如 `v3.6`），或在仓库 **Actions → Build and Publish Sapphire Release → Run workflow** 中填入版本号触发，工作流会自动完成构建并将 `Sapphire-arm64.zip` 上传至对应的 GitHub Release。
+## 开源许可与致谢
 
-## 功能特性
-
-<div style="display: flex; flex-wrap: wrap; gap: 16px; justify-content: center;">
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">附近分享</h3>
-    <p>支持将文件、图片、视频、网页等内容从 Android 设备轻松分享至你的 Mac！</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">正在播放</h3>
-    <p>在灵动岛中展示当前正在播放的各类媒体内容（同样兼容 macOS 15.5）及更多功能。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">高级音频功能（测试版）</h3>
-    <p>直接在灵动岛中独立调节单个应用音量、设备音量、应用均衡器（EQ）以及设备均衡器。</p>
-  </div>
-  
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">护眼休息</h3>
-    <p>健康始终是第一位的。借助精致的灵动岛界面，每 20 分钟提醒你注视 20 英尺（约 6 米）外的地方 20 秒，并提供更多贴心设置。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">天气</h3>
-    <p>在灵动岛中常驻显示当前天气状况，让你随时掌握周边天气变化及更多气象信息。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">Gemini</h3>
-    <p>通过 Gemini Live 便捷地共享屏幕并探讨各类话题，解锁更多智能交互体验。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">日历</h3>
-    <p>查看即将到来的日程安排，并获取正在进行事项的实时提醒及更多功能。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">锁定屏幕</h3>
-    <p>在 Mac 锁屏界面直观查看天气、正在播放的音乐以及即将到来的日历日程等内容。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">文件暂存架</h3>
-    <p>随时调用文件暂存架来便捷存储文件或通过隔空投送（AirDrop）快速分享，并提供更多实用操作。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">窗口磁吸分区</h3>
-    <p>macOS 内置的窗口排列工具功能有限，且会在窗口之间留有缝隙。Sapphire 提供了灵活多样且高度可定制的窗口磁吸分区系统及更多功能。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">音乐</h3>
-    <p>在灵动岛上查看正在播放的媒体，展开后可浏览更多详细信息并进行播放控制。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">蓝牙</h3>
-    <p>当蓝牙设备连接到你的 Mac 时获取连接提示及更多信息。</p>
-  </div>
-
-  <div style="border: 1px solid #30363d; border-radius: 8px; padding: 16px; width: 300px; background-color: #1c1c1e;">
-    <h3 style="margin-top: 0;">保持唤醒</h3>
-    <p>只需轻按一下按钮即可让你的 Mac 保持唤醒状态，并提供更多实用选项。</p>
-  </div>
-
-</div>
+本项目基于 [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE) 开源发布。灵动岛基础窗口框架与部分基础服务衍生自开源项目 [Sapphire](https://github.com/shariqcharolia/Sapphire)（作者 Shariq Charolia，AGPL-3.0），特此致谢。
