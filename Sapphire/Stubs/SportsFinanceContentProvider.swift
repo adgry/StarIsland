@@ -2,7 +2,6 @@
 //  SportsFinanceContentProvider.swift
 //  Sapphire
 //
-//  Created by Shariq Charolia on 2026-08-30
 
 import Foundation
 
@@ -23,10 +22,14 @@ enum SportsFinanceContentProvider {
     }
 
     static func makeSportsPayload(for teamOrLeague: String, index: Int) -> SportsPayload {
-        SportsPayload(
-            league: "",
+        if let cached = SportsAPIService.shared.cachedLiveEvent(for: teamOrLeague) {
+            return makeSportsPayload(from: cached)
+        }
+        let route = SportsAPIService.resolveLeagueRoute(for: teamOrLeague)
+        return SportsPayload(
+            league: route.displayName,
             homeTeam: teamOrLeague,
-            awayTeam: "待定",
+            awayTeam: "待开赛",
             homeScore: 0,
             awayScore: 0,
             status: "即将开始",

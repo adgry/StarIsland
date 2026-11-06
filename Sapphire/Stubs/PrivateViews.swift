@@ -8,24 +8,181 @@ import SwiftUI
 import AppKit
 
 struct SportsSettingsView: View {
+    @EditingSettings var settings: SettingsEditingSession
+    @ObservedObject private var service = SportsAPIService.shared
+    @State private var newTeamInput = ""
+
+    private let quickPresets = ["NBA", "Lakers", "Warriors", "英超", "Arsenal", "欧冠", "Real Madrid", "NFL", "F1"]
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                Text("体育").font(.largeTitle.bold()).padding(.bottom)
+                Text("体育").font(.largeTitle.bold()).padding(.bottom, 6)
+
+                SettingsCard(title: "灵动岛小组件与实时活动", description: "通过 ESPN 公共免 Key 接口自动同步全球联赛实时比分。") {
+                    ToggleRow(title: "启用体育小组件", description: "在展开的灵动岛主栏中显示关注球队或联赛比分卡片。", isOn: $settings.settings.sportsWidgetEnabled)
+                    Divider().padding(.leading, 20)
+                    ToggleRow(title: "启用体育实时活动", description: "在刘海左右翼实时展示关注球队的当前比分。", isOn: $settings.settings.sportsLiveActivityEnabled)
+                    Divider().padding(.leading, 20)
+                    ToggleRow(title: "仅在比赛直播中显示", description: "未开赛或已终场时自动隐藏体育实时活动。", isOn: $settings.settings.sportsLiveActivityWhenLiveOnly)
+                    Divider().padding(.leading, 20)
+                    ToggleRow(title: "实时战报滚动字幕", description: "比赛进行中在灵动岛下方展示最新得分播报。", isOn: $settings.settings.sportsCommentaryInLiveActivity)
+                    Divider().padding(.leading, 20)
+                    ToggleRow(title: "优先显示球队队徽", description: "在实时活动左侧展示高清球队标志。", isOn: $settings.settings.sportsPreferLogo)
+                }
+
+                SettingsCard(title: "关注的球队与联赛", description: "输入英文队名或联赛简称（如 Lakers、Arsenal、NBA、英超、F1）。") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            TextField("输入球队或联赛名称…", text: $newTeamInput)
+                                .textFieldStyle(.roundedBorder)
+                            Button("添加") {
+                                addTeam(newTeamInput)
+                                newTeamInput = ""
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(newTeamInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                            Button("立即刷新") {
+                                Task { await service.prefetchLiveScoreboards(for: settings.settings.sportsFavoriteTeams) }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(quickPresets, id: \.self) { preset in
+                                    Button("+ \(preset)") { addTeam(preset) }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                }
+                            }
+                        }
+
+                        ForEach(settings.settings.sportsFavoriteTeams, id: \.self) { team in
+                            HStack {
+                                Image(systemName: "sportscourt.fill").foregroundStyle(.orange)
+                                Text(team).font(.system(size: 13, weight: .medium))
+                                Spacer()
+                                if let ev = service.cachedLiveEvent(for: team) {
+                                    Text("\(ev.awayTeam) \(ev.awayScore):\(ev.homeScore) \(ev.homeTeam)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Button(role: .destructive) {
+                                    settings.settings.sportsFavoriteTeams.removeAll { $0 == team }
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .padding(20)
+                }
             }
             .padding(25)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+    }
+
+    private func addTeam(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !settings.settings.sportsFavoriteTeams.contains(trimmed) else { return }
+        settings.settings.sportsFavoriteTeams.append(trimmed)
+        Task { _ = await service.fetchLiveEvent(for: trimmed, forceRefresh: true) }
     }
 }
 
 struct FinanceSettingsView: View {
+    @EditingSettings var settings: SettingsEditingSession
+    @ObservedObject private var service = FinanceAPIService.shared
+    @State private var newSymbolInput = ""
+
+    private let quickSymbols = ["AAPL", "NVDA", "MSFT", "TSLA", "GOOGL", "BTCUSDT", "ETHUSDT", "SOLUSDT"]
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
-                Text("财经").font(.largeTitle.bold()).padding(.bottom)
+                Text("财经").font(.largeTitle.bold()).padding(.bottom, 6)
+
+                SettingsCard(title: "灵动岛行情组件与实时活动", description: "内置 Yahoo Finance 与 Binance 免 Key 双引擎，支持美股/指数与加密货币实时折线。") {
+                    ToggleRow(title: "启用财经小组件", description: "在灵动岛展示自选标的实时报价与分时走势线。", isOn: $settings.settings.financeWidgetEnabled)
+                    Divider().padding(.leading, 20)
+                    ToggleRow(title: "启用财经实时活动", description: "在刘海左右翼常驻显示当前首选证券或代币涨跌。", isOn: $settings.settings.financeLiveActivityEnabled)
+                    Divider().padding(.leading, 20)
+                    ToggleRow(title: "仅在交易时段显示", description: "盘后或休市期间自动隐藏股票实时活动。", isOn: $settings.settings.financeLiveActivityActiveHoursOnly)
+                }
+
+                SettingsCard(title: "自选标的列表", description: "股票输入代码（如 AAPL、NVDA、0700.HK），加密货币输入交易对（如 BTCUSDT）。") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 8) {
+                            TextField("例如 AAPL 或 BTCUSDT…", text: $newSymbolInput)
+                                .textFieldStyle(.roundedBorder)
+                            Button("添加") {
+                                addSymbol(newSymbolInput)
+                                newSymbolInput = ""
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(newSymbolInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                            Button("刷新行情") {
+                                Task { await service.refreshWatchlist(settings.settings.financeFavoriteSymbols) }
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(quickSymbols, id: \.self) { sym in
+                                    Button("+ \(sym)") { addSymbol(sym) }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                }
+                            }
+                        }
+
+                        ForEach(Array(settings.settings.financeFavoriteSymbols.enumerated()), id: \.element) { idx, sym in
+                            let quote = service.quotesBySymbol[sym.uppercased()] ?? service.cachedQuote(symbol: sym)
+                            let payload = service.makePayload(symbol: sym, index: idx, quote: quote)
+                            HStack {
+                                Image(systemName: idx == settings.settings.financeFavoriteSymbolIndex ? "star.fill" : "star")
+                                    .foregroundStyle(idx == settings.settings.financeFavoriteSymbolIndex ? .yellow : .secondary)
+                                    .onTapGesture { settings.settings.financeFavoriteSymbolIndex = idx }
+                                Text(sym).font(.system(size: 13, weight: .bold, design: .rounded))
+                                Text(payload.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer()
+                                Text(payload.price).font(.system(size: 13, weight: .semibold, design: .rounded))
+                                Text(payload.changePercent)
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(payload.isPositive ? .green : .red)
+                                Button(role: .destructive) {
+                                    settings.settings.financeFavoriteSymbols.removeAll { $0 == sym }
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                    .padding(20)
+                }
             }
             .padding(25)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .task {
+            await service.refreshWatchlist(settings.settings.financeFavoriteSymbols)
+        }
+    }
+
+    private func addSymbol(_ raw: String) {
+        let upper = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !upper.isEmpty, !settings.settings.financeFavoriteSymbols.contains(upper) else { return }
+        settings.settings.financeFavoriteSymbols.append(upper)
+        Task { _ = await service.fetchQuote(symbol: upper, forceRefresh: true) }
     }
 }
 
