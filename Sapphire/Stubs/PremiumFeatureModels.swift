@@ -7,6 +7,7 @@
 #if !SAPPHIRE_FULL_BUILD
 import AppKit
 import Combine
+import CoreWLAN
 import Foundation
 
 enum CaretPositionTracker {
@@ -30,32 +31,163 @@ final class WiFiStatusMonitor: ObservableObject {
 
     static let shared = WiFiStatusMonitor()
     @Published private(set) var state = State()
+    private var pollTimer: Timer?
 
     private init() {}
-    func startPolling() {}
-    func stopPolling() {}
-    func refresh(completion: (() -> Void)? = nil) { completion?() }
+
+    func startPolling() {
+        guard pollTimer == nil else { return }
+        refresh()
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refresh() }
+        }
+    }
+
+    func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+    }
+
+    func refresh(completion: (() -> Void)? = nil) {
+        if let iface = CWWiFiClient.shared().interface() {
+            let powered = iface.powerOn()
+            let ssid = iface.ssid()
+            let connected = powered && (ssid != nil || iface.wlanChannel() != nil)
+            state = State(isConnected: connected, networkName: ssid, isInterfacePowerOn: powered)
+        } else {
+            state = State()
+        }
+        completion?()
+    }
 }
 
 @MainActor
 final class DMGInstallerManager: ObservableObject {
     static let shared = DMGInstallerManager()
     @Published private(set) var currentTransferTask: FileTransferTask?
+    @Published private(set) var lastStatusMessage: String = ""
 
     private init() {}
-    func handleOpenURLs(_ urls: [URL]) {}
+
+    func handleOpenURLs(_ urls: [URL]) {
+        let dmgURLs = urls.filter { $0.pathExtension.lowercased() == "dmg" }
+        guard !dmgURLs.isEmpty else { return }
+        Task {
+            for url in dmgURLs {
+                await installDMG(at: url)
+            }
+        }
+    }
+
+    @discardableResult
+    func installDMG(at dmgURL: URL) async -> Bool {
+        let trashAfter = SettingsModel.shared.settings.dmgInstallerTrashAfterInstall
+        let useUserApps = SettingsModel.shared.settings.dmgInstallerInstallLocation == .homeApplications
+        let destDir: URL = useUserApps
+            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true)
+            : URL(fileURLWithPath: "/Applications", isDirectory: true)
+
+        lastStatusMessage = "正在挂载 \(dmgURL.lastPathComponent)…"
+        let installedApp: URL? = await Task.detached(priority: .userInitiated) {
+            let attach = Process()
+            attach.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+            attach.arguments = ["attach", "-nobrowse", "-readonly", "-plist", dmgURL.path]
+            let pipe = Pipe()
+            attach.standardOutput = pipe
+            attach.standardError = FileHandle.nullDevice
+            try? attach.run()
+            attach.waitUntilExit()
+            guard attach.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                  let entities = plist["system-entities"] as? [[String: Any]] else {
+                return nil
+            }
+            let mountPoint = entities.compactMap { $0["mount-point"] as? String }.first
+            guard let mountPoint else { return nil }
+            defer {
+                let detach = Process()
+                detach.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+                detach.arguments = ["detach", mountPoint, "-quiet"]
+                try? detach.run()
+                detach.waitUntilExit()
+            }
+            let fm = FileManager.default
+            let mountURL = URL(fileURLWithPath: mountPoint, isDirectory: true)
+            guard let items = try? fm.contentsOfDirectory(at: mountURL, includingPropertiesForKeys: nil),
+                  let appSource = items.first(where: { $0.pathExtension.lowercased() == "app" }) else {
+                return nil
+            }
+            try? fm.createDirectory(at: destDir, withIntermediateDirectories: true)
+            let appDest = destDir.appendingPathComponent(appSource.lastPathComponent)
+            if fm.fileExists(atPath: appDest.path) {
+                try? fm.removeItem(at: appDest)
+            }
+            do {
+                try fm.copyItem(at: appSource, to: appDest)
+                return appDest
+            } catch {
+                return nil
+            }
+        }.value
+
+        if let installedApp {
+            if trashAfter {
+                NSWorkspace.shared.recycle([dmgURL], completionHandler: nil)
+            }
+            lastStatusMessage = "已成功安装 \(installedApp.lastPathComponent)"
+            if SettingsModel.shared.settings.dmgInstallerPostInstallAction == .open {
+                NSWorkspace.shared.open(installedApp)
+            } else if SettingsModel.shared.settings.dmgInstallerPostInstallAction == .revealInFinder {
+                NSWorkspace.shared.activateFileViewerSelecting([installedApp])
+            }
+            return true
+        } else {
+            lastStatusMessage = "安装 \(dmgURL.lastPathComponent) 失败"
+            return false
+        }
+    }
+
     func reconcileDefaultHandlerIfNeeded() {}
-    static func isDefaultDMGHandler() -> Bool { false }
-    static func setAsDefaultDMGHandler() {}
+
+    static func isDefaultDMGHandler() -> Bool {
+        guard let bundleID = Bundle.main.bundleIdentifier,
+              let handler = LSCopyDefaultRoleHandlerForContentType("com.apple.disk-image-udif" as CFString, .viewer)?.takeRetainedValue() as String? else {
+            return false
+        }
+        return handler.caseInsensitiveCompare(bundleID) == .orderedSame
+    }
+
+    static func setAsDefaultDMGHandler() {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return }
+        LSSetDefaultRoleHandlerForContentType("com.apple.disk-image-udif" as CFString, .viewer, bundleID as CFString)
+    }
+
     static func shadowingCopy() -> URL? { nil }
 }
 
 struct DockLayout: Codable, Equatable, Identifiable {
     var id: UUID = UUID()
     var name: String = "新建预设"
+    var plistDataBase64: String? = nil
+    var appCount: Int? = nil
 }
 
 struct StorageSpaceMapSnapshot {
+    struct Slice: Identifiable, Equatable {
+        let id: URL
+        let name: String
+        let bytes: Int64
+        let category: StorageCategory
+    }
+
+    var items: [Slice] = []
+    var accountedBytes: Int64 = 0
+    var usedBytes: Int64 = 0
+    var totalBytes: Int64 = 0
+    var freeBytes: Int64 = 0
+    var usedRatio: Double = 0
+
     static func make(
         from entries: [StorageEntry],
         maximumItems: Int,
@@ -64,7 +196,28 @@ struct StorageSpaceMapSnapshot {
         deepScanEnabled: Bool,
         entriesSortedBySize: Bool
     ) -> StorageSpaceMapSnapshot {
-        StorageSpaceMapSnapshot()
+        let ordered = entriesSortedBySize ? entries : entries.sorted { $0.size > $1.size }
+        let cap = max(1, maximumItems)
+        let slices = ordered.prefix(cap).map { entry in
+            Slice(id: entry.url, name: entry.name, bytes: max(0, entry.size), category: entry.category)
+        }
+        let accounted = ordered.reduce(Int64(0)) { partial, entry in
+            let next = max(0, entry.size)
+            let (sum, overflow) = partial.addingReportingOverflow(next)
+            return overflow ? Int64.max : sum
+        }
+        let safeTotal = max(0, total)
+        let safeUsed = min(safeTotal > 0 ? safeTotal : max(0, used), max(0, used))
+        let free = max(0, safeTotal - safeUsed)
+        let ratio = safeTotal > 0 ? min(1.0, max(0.0, Double(safeUsed) / Double(safeTotal))) : 0
+        return StorageSpaceMapSnapshot(
+            items: slices,
+            accountedBytes: accounted,
+            usedBytes: safeUsed,
+            totalBytes: safeTotal,
+            freeBytes: free,
+            usedRatio: ratio
+        )
     }
 }
 
