@@ -18,8 +18,48 @@ final class CircleToSearchManager: ObservableObject {
     @Published var isRecognizing: Bool = false
 
     private var overlayWindows: [NSWindow] = []
+    private var globalKeyMonitor: Any?
+    private var localKeyMonitor: Any?
 
     private init() {}
+
+    @MainActor
+    func startShortcutMonitor() {
+        guard globalKeyMonitor == nil, localKeyMonitor == nil else { return }
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor [weak self] in
+                self?.handleShortcutEventIfMatched(event)
+            }
+        }
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if self.matchesConfiguredShortcut(event) {
+                self.startInteractiveSelection()
+                return nil
+            }
+            return event
+        }
+    }
+
+    @MainActor
+    private func matchesConfiguredShortcut(_ event: NSEvent) -> Bool {
+        let settings = SettingsModel.shared.settings
+        guard settings.circleToSearchEnabled, !event.isARepeat else { return false }
+        let target = settings.circleToSearchShortcut
+        let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard mods == target.significantModifiers, !mods.isEmpty else { return false }
+        let keyName = KeyCodeTranslator.shared.string(for: event.keyCode, from: event)
+            ?? event.charactersIgnoringModifiers?.uppercased()
+            ?? ""
+        return target.matches(KeyboardShortcut(key: keyName, modifiers: mods))
+    }
+
+    @MainActor
+    private func handleShortcutEventIfMatched(_ event: NSEvent) {
+        if matchesConfiguredShortcut(event) {
+            startInteractiveSelection()
+        }
+    }
 
     func recognizeText(in image: CGImage) async -> String {
         await withCheckedContinuation { continuation in
@@ -60,11 +100,14 @@ final class CircleToSearchManager: ObservableObject {
     @MainActor
     func startInteractiveSelection() {
         dismissSelectionOverlays()
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let mouseLocation = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) })
+            ?? NSScreen.main
+            ?? NSScreen.screens.first else { return }
         let displayID = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? CGMainDisplayID()
         guard let fullScreenshot = CGDisplayCreateImage(displayID) else { return }
 
-        let panel = NSPanel(
+        let panel = KeyableSelectionPanel(
             contentRect: screen.frame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -86,6 +129,7 @@ final class CircleToSearchManager: ObservableObject {
         }
         panel.contentView = selectorView
         panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(selectorView)
         overlayWindows = [panel]
     }
 
@@ -111,10 +155,6 @@ final class CircleToSearchManager: ObservableObject {
         let text = await recognizeText(in: targetCG)
         recognizedText = text
         isRecognizing = false
-        if !text.isEmpty {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-        }
     }
 
     @MainActor
@@ -126,6 +166,11 @@ final class CircleToSearchManager: ObservableObject {
     func endResultsPresentation() {
         Task { @MainActor in dismissSelectionOverlays() }
     }
+}
+
+private final class KeyableSelectionPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
 private final class RegionSelectionNSView: NSView {

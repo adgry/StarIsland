@@ -2419,7 +2419,7 @@ class LiveActivityManager {
         notificationManager.start()
         if let notification = notificationManager.latestNotification,
            let code = notification.verificationCode {
-            if SmartInboxMonitor.shared.hasConsumedOTP(code) {
+            if SmartInboxMonitor.shared.hasConsumedOTP(code), currentActivity != .otp {
                 return nil
             }
             SmartInboxMonitor.shared.consumeOTP(code)

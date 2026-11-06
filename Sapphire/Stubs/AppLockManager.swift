@@ -34,6 +34,7 @@ final class AppLockManager: ObservableObject {
         }
         configureBlocker()
         installSleepObserver()
+        refresh()
     }
 
     private func configureBlocker() {
@@ -154,33 +155,31 @@ final class AppLockManager: ObservableObject {
         guard !trimmed.isEmpty else { return }
         let salt = UUID().uuidString
         let digest = Self.sha256Hex("\(salt):\(trimmed)")
-        UserDefaults.standard.set(salt, forKey: Self.passwordSaltKey)
-        UserDefaults.standard.set(digest, forKey: Self.passwordHashKey)
+        StarIslandKeychainVault.setString(salt, forAccount: "applock.salt", legacyDefaultsKey: Self.passwordSaltKey)
+        StarIslandKeychainVault.setString(digest, forAccount: "applock.hash", legacyDefaultsKey: Self.passwordHashKey)
         objectWillChange.send()
     }
 
     func clearFallbackPassword() {
-        UserDefaults.standard.removeObject(forKey: Self.passwordSaltKey)
-        UserDefaults.standard.removeObject(forKey: Self.passwordHashKey)
+        StarIslandKeychainVault.setString("", forAccount: "applock.salt", legacyDefaultsKey: Self.passwordSaltKey)
+        StarIslandKeychainVault.setString("", forAccount: "applock.hash", legacyDefaultsKey: Self.passwordHashKey)
         objectWillChange.send()
     }
 
     var hasPasswordFallback: Bool {
-        guard let hash = UserDefaults.standard.string(forKey: Self.passwordHashKey),
-              let salt = UserDefaults.standard.string(forKey: Self.passwordSaltKey) else {
-            return false
-        }
+        let hash = StarIslandKeychainVault.string(forAccount: "applock.hash", legacyDefaultsKey: Self.passwordHashKey)
+        let salt = StarIslandKeychainVault.string(forAccount: "applock.salt", legacyDefaultsKey: Self.passwordSaltKey)
         return !hash.isEmpty && !salt.isEmpty
     }
 
     func verifyPassword(_ password: String, for bundleID: String) -> Bool {
-        guard let expected = UserDefaults.standard.string(forKey: Self.passwordHashKey),
-              let salt = UserDefaults.standard.string(forKey: Self.passwordSaltKey),
-              !expected.isEmpty else {
+        let expected = StarIslandKeychainVault.string(forAccount: "applock.hash", legacyDefaultsKey: Self.passwordHashKey)
+        let salt = StarIslandKeychainVault.string(forAccount: "applock.salt", legacyDefaultsKey: Self.passwordSaltKey)
+        guard !expected.isEmpty, !salt.isEmpty else {
             return false
         }
         let candidate = Self.sha256Hex("\(salt):\(password.trimmingCharacters(in: .whitespacesAndNewlines))")
-        if candidate == expected {
+        if StarIslandPairingTokenManager.constantTimeEquals(candidate, expected) {
             markUnlocked(bundleID: bundleID)
             return true
         } else {

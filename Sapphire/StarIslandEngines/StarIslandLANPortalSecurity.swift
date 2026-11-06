@@ -129,7 +129,7 @@ struct StarIslandPairingTokenManager: Sendable {
         return tok.isEmpty ? nil : tok
     }
 
-    private static func constantTimeEquals(_ lhs: String, _ rhs: String) -> Bool {
+    static func constantTimeEquals(_ lhs: String, _ rhs: String) -> Bool {
         let a = Array(lhs.utf8)
         let b = Array(rhs.utf8)
         guard a.count == b.count else { return false }

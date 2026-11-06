@@ -144,12 +144,17 @@ final class SmartInboxMonitor: ObservableObject {
     }
 
     func dismissOTP() {
-        if Thread.isMainThread {
-            latestOTP = nil
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.latestOTP = nil
+        let clearBlock = { [weak self] in
+            guard let self else { return }
+            if let code = self.latestOTP?.code {
+                self.consumeOTP(code)
             }
+            self.latestOTP = nil
+        }
+        if Thread.isMainThread {
+            clearBlock()
+        } else {
+            DispatchQueue.main.async(execute: clearBlock)
         }
     }
 

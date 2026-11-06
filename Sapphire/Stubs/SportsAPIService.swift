@@ -3,6 +3,8 @@
 //  Sapphire
 //
 
+
+#if !SAPPHIRE_FULL_BUILD
 import Combine
 import Foundation
 import SwiftUI
@@ -316,3 +318,4 @@ enum SportsLiveActivityView {
         }
     }
 }
+#endif

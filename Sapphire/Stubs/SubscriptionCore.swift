@@ -65,7 +65,7 @@ public enum SubscriptionFeatureCatalog {
     }
 
     public static func marketingSubtitle(for tier: SubscriptionTier) -> String {
-        "星岛旗舰版已永久解锁全部 46 项高级特性，无任何内购或订阅限制。"
+        "星岛旗舰版已永久解锁全部 \(AppFeature.allCases.count) 项高级特性，无任何内购或订阅限制。"
     }
 
     public static func marketingTierHighlights() -> [(tier: SubscriptionTier, features: [String])] {

@@ -93,6 +93,7 @@ final class DMGInstallerManager: ObservableObject {
             attach.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
             attach.arguments = ["attach", "-nobrowse", "-readonly", "-plist", dmgURL.path]
             let pipe = Pipe()
+            attach.standardInput = FileHandle.nullDevice
             attach.standardOutput = pipe
             attach.standardError = FileHandle.nullDevice
             try? attach.run()
@@ -109,6 +110,7 @@ final class DMGInstallerManager: ObservableObject {
                 let detach = Process()
                 detach.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
                 detach.arguments = ["detach", mountPoint, "-quiet"]
+                detach.standardInput = FileHandle.nullDevice
                 try? detach.run()
                 detach.waitUntilExit()
             }
@@ -120,13 +122,17 @@ final class DMGInstallerManager: ObservableObject {
             }
             try? fm.createDirectory(at: destDir, withIntermediateDirectories: true)
             let appDest = destDir.appendingPathComponent(appSource.lastPathComponent)
-            if fm.fileExists(atPath: appDest.path) {
-                try? fm.removeItem(at: appDest)
-            }
+            let stagedURL = destDir.appendingPathComponent(".StarIslandStage-\(UUID().uuidString).app")
             do {
-                try fm.copyItem(at: appSource, to: appDest)
+                try fm.copyItem(at: appSource, to: stagedURL)
+                if fm.fileExists(atPath: appDest.path) {
+                    _ = try fm.replaceItemAt(appDest, withItemAt: stagedURL)
+                } else {
+                    try fm.moveItem(at: stagedURL, to: appDest)
+                }
                 return appDest
             } catch {
+                try? fm.removeItem(at: stagedURL)
                 return nil
             }
         }.value

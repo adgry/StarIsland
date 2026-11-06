@@ -271,12 +271,12 @@ private enum UpdateMetadataError: LocalizedError {
         case .httpStatus(let status): return "更新服务器返回了 HTTP \(status)。"
         case .rateLimited(let retry):
             if let retry { return "GitHub 更新检查触发速率限制，将于 \(retry.formatted(date: .omitted, time: .shortened)) 重试。" }
-            return "GitHub 更新检查触发速率限制，Sapphire 将稍后自动重试。"
+            return "GitHub 更新检查触发速率限制，星岛 将稍后自动重试。"
         case .responseTooLarge: return "更新元数据体积异常偏大。"
         case .emptyCache: return "暂无可用的缓存更新信息。"
         case .invalidMetadata: return "无法验证更新信息。"
         case .noEligibleRelease: return "所选更新通道暂无可用版本。"
-        case .noEligibleAsset: return "此版本不包含适用于当前 Mac 的受信任 Sapphire 安装包。"
+        case .noEligibleAsset: return "此版本不包含适用于当前 Mac 的受信任 星岛 安装包。"
         }
     }
 }
@@ -391,7 +391,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
             guard notificationSettings.authorizationStatus == .authorized
                 || notificationSettings.authorizationStatus == .provisional else { return }
             let content = UNMutableNotificationContent()
-            content.title = "Sapphire \(version) 现已推出"
+            content.title = "星岛 \(version) 现已推出"
             content.body = "新版本已可供下载。打开“设置 → 关于 → 更新”即可安装。"
             content.sound = .default
             let request = UNNotificationRequest(
@@ -574,7 +574,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
         request.timeoutInterval = 25
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("Sapphire/\(currentAppVersion)", forHTTPHeaderField: "User-Agent")
+        request.setValue("StarIsland/\(currentAppVersion)", forHTTPHeaderField: "User-Agent")
         request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
         if useConditionalRequest,
            let etag = UserDefaults.standard.string(forKey: releasesCacheETagKey) {
@@ -980,7 +980,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
               asset.name.lowercased().hasSuffix(".zip"),
               (asset.name.lowercased().contains("starisland") || asset.name.lowercased().contains("sapphire")),
               asset.size.map({ $0 > 0 && $0 <= Self.maximumDownloadBytes }) == true else {
-            applyStatus(.error("该版本的下载文件未通过 Sapphire 的安全策略校验。"))
+            applyStatus(.error("该版本的下载文件未通过 星岛 的安全策略校验。"))
             return
         }
 
@@ -997,7 +997,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
         downloadSession = session
         var request = URLRequest(url: asset.browserDownloadUrl)
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        request.setValue("Sapphire/\(currentAppVersion)", forHTTPHeaderField: "User-Agent")
+        request.setValue("StarIsland/\(currentAppVersion)", forHTTPHeaderField: "User-Agent")
         downloadTask = session.downloadTask(with: request)
         downloadTask?.resume()
 
@@ -1190,10 +1190,10 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
         expectedVersion: String
     ) async -> PrivilegedUpdateInstallOutcome {
         guard let version = await XPCClient.shared.helperProtocolVersion(timeout: 5) else {
-            return .failure("特权更新辅助工具不可用。请重新安装或修复 Sapphire 辅助工具后再试。")
+            return .failure("特权更新辅助工具不可用。请重新安装或修复 星岛 辅助工具后再试。")
         }
         guard version >= SapphireHelperProtocolVersion else {
-            return .failure("特权更新辅助工具版本过旧。请重新安装或修复 Sapphire 辅助工具后再试。")
+            return .failure("特权更新辅助工具版本过旧。请重新安装或修复 星岛 辅助工具后再试。")
         }
 
         return await withCheckedContinuation { continuation in
@@ -1204,7 +1204,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
             }
 
             guard let helper = XPCClient.shared.helper else {
-                resumeOnce(.failure("无法连接特权更新辅助工具。请重新安装或修复 Sapphire 辅助工具后再试。"))
+                resumeOnce(.failure("无法连接特权更新辅助工具。请重新安装或修复 星岛 辅助工具后再试。"))
                 return
             }
 
@@ -1222,7 +1222,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
 
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 90) {
                 resumeOnce(.failure(
-                    "特权更新辅助工具在 90 秒内未响应。在首次安装结果明确前，Sapphire 不会重复启动安装程序；请重新打开 Sapphire 并核对当前版本号后再决定是否重试。"
+                    "特权更新辅助工具在 90 秒内未响应。在首次安装结果明确前，星岛 不会重复启动安装程序；请重新打开 星岛 并核对当前版本号后再决定是否重试。"
                 ))
             }
         }
@@ -1278,7 +1278,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
                     throw NSError(
                         domain: "UpdateError",
                         code: 23,
-                        userInfo: [NSLocalizedDescriptionKey: "Sapphire 当前正通过符号链接运行。请先将真实应用移入“应用程序”文件夹后再进行更新。"]
+                        userInfo: [NSLocalizedDescriptionKey: "星岛 当前正通过符号链接运行。请先将真实应用移入“应用程序”文件夹后再进行更新。"]
                     )
                 }
                 guard let currentBundleIdentifier = Bundle.main.bundleIdentifier,
@@ -1286,7 +1286,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
                         in: tempUnzipDirectory,
                         bundleIdentifier: currentBundleIdentifier
                       ) else {
-                    throw NSError(domain: "UpdateError", code: 3, userInfo: [NSLocalizedDescriptionKey: "更新压缩包中未包含预期的 Sapphire 应用。"])
+                    throw NSError(domain: "UpdateError", code: 3, userInfo: [NSLocalizedDescriptionKey: "更新压缩包中未包含预期的 星岛 应用。"])
                 }
                 Self.clearQuarantineAttributes(at: newAppURL)
                 try Self.validateRuntimeArchitecture(newAppURL)
@@ -1327,7 +1327,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
                         throw NSError(
                             domain: "UpdateError",
                             code: 9,
-                            userInfo: [NSLocalizedDescriptionKey: "Sapphire 所在目录当前用户无写入权限。请使用标准安装方式输入管理员密码完成更新。"]
+                            userInfo: [NSLocalizedDescriptionKey: "星岛 所在目录当前用户无写入权限。请使用标准安装方式输入管理员密码完成更新。"]
                         )
                     case .standard:
                         let outcome = await Self.installViaPrivilegedHelper(
@@ -1669,7 +1669,7 @@ class UpdateChecker: NSObject, ObservableObject, @preconcurrency URLSessionDownl
         guard downloadSession === session else { return }
         if totalBytesWritten > Self.maximumDownloadBytes
             || totalBytesExpectedToWrite > Self.maximumDownloadBytes {
-            downloadPolicyFailure = "更新压缩包超出了 Sapphire 允许的最大体积限制。"
+            downloadPolicyFailure = "更新压缩包超出了 星岛 允许的最大体积限制。"
             downloadTask.cancel()
             return
         }

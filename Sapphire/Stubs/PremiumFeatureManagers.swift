@@ -5,6 +5,7 @@
 
 #if !SAPPHIRE_FULL_BUILD
 import AppKit
+import ApplicationServices
 import Combine
 import Foundation
 import PDFKit
@@ -456,9 +457,84 @@ final class FinderCutPasteManager {
 
 final class SnippetManager {
     static let shared = SnippetManager()
+    private var keyMonitor: Any?
+    private var typedBuffer = ""
     private init() {}
-    func start() {}
-    func removeHandler() {}
+
+    func start() {
+        removeHandler()
+        guard AXIsProcessTrusted() else { return }
+        keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleKeyDown(event)
+        }
+    }
+
+    func removeHandler() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+        typedBuffer = ""
+    }
+
+    private func handleKeyDown(_ event: NSEvent) {
+        let mods = event.modifierFlags.intersection([.command, .control, .option])
+        guard mods.isEmpty else {
+            typedBuffer = ""
+            return
+        }
+        if event.keyCode == 51 {
+            if !typedBuffer.isEmpty { typedBuffer.removeLast() }
+            return
+        }
+        guard let chars = event.characters, !chars.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let settings = SettingsModel.shared.settings
+            guard settings.snippetsEnabled else {
+                self.typedBuffer = ""
+                return
+            }
+            self.typedBuffer.append(chars)
+            if self.typedBuffer.count > 48 {
+                self.typedBuffer = String(self.typedBuffer.suffix(48))
+            }
+            let requireSpace = settings.snippetsExpandAfterSpace
+            for entry in settings.snippetsList where entry.isEnabled && !entry.trigger.isEmpty {
+                let candidate = requireSpace ? "\(entry.trigger) " : entry.trigger
+                if self.typedBuffer.hasSuffix(candidate) {
+                    self.typedBuffer = ""
+                    Self.expandSnippet(deleteCount: candidate.count, replacement: entry.replacement + (requireSpace ? " " : ""))
+                    break
+                }
+            }
+        }
+    }
+
+    private static func expandSnippet(deleteCount: Int, replacement: String) {
+        guard AXIsProcessTrusted(), let src = CGEventSource(stateID: .hidSystemState) else { return }
+        for _ in 0..<deleteCount {
+            CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: true)?.post(tap: .cghidEventTap)
+            CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: false)?.post(tap: .cghidEventTap)
+        }
+        let pb = NSPasteboard.general
+        let saved = pb.string(forType: .string)
+        pb.clearContents()
+        pb.setString(replacement, forType: .string)
+        if let vDown = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: true),
+           let vUp = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: false) {
+            vDown.flags = .maskCommand
+            vUp.flags = .maskCommand
+            vDown.post(tap: .cghidEventTap)
+            vUp.post(tap: .cghidEventTap)
+        }
+        if let saved {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                pb.clearContents()
+                pb.setString(saved, forType: .string)
+            }
+        }
+    }
 }
 
 final class MouseControlManager {
@@ -470,16 +546,113 @@ final class MouseControlManager {
 
 final class FocusFollowsMouseManager {
     static let shared = FocusFollowsMouseManager()
+    private var mouseMonitor: Any?
+    private var pendingWork: DispatchWorkItem?
     private init() {}
-    func start() {}
-    func removeMonitors() {}
+
+    func start() {
+        removeMonitors()
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+            self?.scheduleFocusCheck()
+        }
+    }
+
+    func removeMonitors() {
+        pendingWork?.cancel()
+        pendingWork = nil
+        if let mouseMonitor {
+            NSEvent.removeMonitor(mouseMonitor)
+            self.mouseMonitor = nil
+        }
+    }
+
+    private func scheduleFocusCheck() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let settings = SettingsModel.shared.settings
+            guard settings.mouseFocusFollowsEnabled else { return }
+            self.pendingWork?.cancel()
+            let delay = max(0.05, settings.mouseFocusFollowsDelay)
+            let work = DispatchWorkItem {
+                Self.activateAppUnderCursor(excludedBundleIDs: Set(settings.mouseExcludedAppBundleIDs))
+            }
+            self.pendingWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+    }
+
+    private static func activateAppUnderCursor(excludedBundleIDs: Set<String>) {
+        let mouseAppKit = NSEvent.mouseLocation
+        guard let mainHeight = NSScreen.screens.first?.frame.height else { return }
+        let cgPoint = CGPoint(x: mouseAppKit.x, y: mainHeight - mouseAppKit.y)
+        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return
+        }
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        for win in infoList {
+            guard (win[kCGWindowLayer as String] as? Int ?? -1) == 0,
+                  let boundsDict = win[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: boundsDict),
+                  rect.contains(cgPoint),
+                  let pid = win[kCGWindowOwnerPID as String] as? pid_t,
+                  pid != selfPID,
+                  let app = NSRunningApplication(processIdentifier: pid),
+                  !app.isActive else {
+                continue
+            }
+            if let bid = app.bundleIdentifier, excludedBundleIDs.contains(bid) { return }
+            app.activate()
+            return
+        }
+    }
 }
 
 final class ExtraClickFilterManager {
     static let shared = ExtraClickFilterManager()
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+    fileprivate var lastClickTimestamp: Double = -1
     private init() {}
-    func start() {}
-    func shutdown() {}
+
+    func start() {
+        shutdown()
+        guard AXIsProcessTrusted() else { return }
+        let mask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue)
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: { _, type, event, userInfo in
+                guard type == .leftMouseDown, let userInfo else { return Unmanaged.passUnretained(event) }
+                let mgr = Unmanaged<ExtraClickFilterManager>.fromOpaque(userInfo).takeUnretainedValue()
+                let settings = MainActor.assumeIsolated { SettingsModel.shared.settings }
+                guard settings.mouseExtraClickFilterEnabled else { return Unmanaged.passUnretained(event) }
+                let now = ProcessInfo.processInfo.systemUptime
+                let delta = mgr.lastClickTimestamp < 0 ? Double.greatestFiniteMagnitude : (now - mgr.lastClickTimestamp)
+                if ExtraClickFilterManager.shouldSuppressClick(deltaSeconds: delta, threshold: settings.mouseExtraClickFilterInterval) {
+                    return nil
+                }
+                mgr.lastClickTimestamp = now
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: selfPtr
+        ) else { return }
+        let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        eventTap = tap
+        runLoopSource = src
+    }
+
+    func shutdown() {
+        if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if let src = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes) }
+        eventTap = nil
+        runLoopSource = nil
+        lastClickTimestamp = -1
+    }
 
     static func shouldSuppressClick(deltaSeconds: Double, threshold: Double) -> Bool {
         guard threshold > 0, deltaSeconds >= 0 else { return false }
@@ -489,9 +662,54 @@ final class ExtraClickFilterManager {
 
 final class KeyboardDebounceManager {
     static let shared = KeyboardDebounceManager()
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
+    fileprivate var lastKeyTimestamps: [Int64: Double] = [:]
     private init() {}
-    func start() {}
-    func stopMonitoring() {}
+
+    func start() {
+        stopMonitoring()
+        guard AXIsProcessTrusted() else { return }
+        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: mask,
+            callback: { _, type, event, userInfo in
+                guard type == .keyDown,
+                      event.getIntegerValueField(.keyboardEventAutorepeat) == 0,
+                      let userInfo else { return Unmanaged.passUnretained(event) }
+                let mgr = Unmanaged<KeyboardDebounceManager>.fromOpaque(userInfo).takeUnretainedValue()
+                let settings = MainActor.assumeIsolated { SettingsModel.shared.settings }
+                guard settings.keyboardDebounceEnabled else { return Unmanaged.passUnretained(event) }
+                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+                let now = ProcessInfo.processInfo.systemUptime
+                let prev = mgr.lastKeyTimestamps[keyCode] ?? -1
+                let delta = prev < 0 ? Double.greatestFiniteMagnitude : (now - prev)
+                if KeyboardDebounceManager.shouldSuppressKeyRepeat(deltaSeconds: delta, threshold: settings.keyboardDebounceInterval) {
+                    return nil
+                }
+                mgr.lastKeyTimestamps[keyCode] = now
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: selfPtr
+        ) else { return }
+        let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        eventTap = tap
+        runLoopSource = src
+    }
+
+    func stopMonitoring() {
+        if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if let src = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes) }
+        eventTap = nil
+        runLoopSource = nil
+        lastKeyTimestamps.removeAll()
+    }
 
     static func shouldSuppressKeyRepeat(deltaSeconds: Double, threshold: Double) -> Bool {
         guard threshold > 0, deltaSeconds >= 0 else { return false }

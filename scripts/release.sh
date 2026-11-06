@@ -104,11 +104,12 @@ STAGED_APP="$DIST_DIR/StarIsland.app"
 ditto "$BUILT_APP" "$STAGED_APP"
 xattr -cr "$STAGED_APP" || true
 codesign --force --deep --sign "$SIGN_IDENTITY" "$STAGED_APP"
-codesign --force --sign "$SIGN_IDENTITY" \
+codesign --force --sign "$SIGN_IDENTITY" --options runtime --generate-entitlement-der \
   --identifier com.adgry.starisland.helper \
   --entitlements "$ROOT_DIR/com.shariq.sapphireHelper/sapphireHelper.entitlements" \
   "$STAGED_APP/Contents/MacOS/com.shariq.sapphireHelper"
-codesign --force --sign "$SIGN_IDENTITY" --entitlements "$ROOT_DIR/scripts/SapphireAdHoc.entitlements" "$STAGED_APP"
+codesign --force --sign "$SIGN_IDENTITY" --options runtime --generate-entitlement-der \
+  --entitlements "$ROOT_DIR/scripts/SapphireAdHoc.entitlements" "$STAGED_APP"
 codesign --verify --deep --strict --verbose=2 "$STAGED_APP"
 
 ZIP_NAME="StarIsland-arm64.zip"

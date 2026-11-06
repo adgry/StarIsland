@@ -103,11 +103,16 @@ struct AppLockSettingsView: View {
                         HStack(spacing: 8) {
                             TextField("输入 Bundle ID（如 com.tencent.xinWeChat）", text: $bundleIDInput)
                                 .textFieldStyle(.roundedBorder)
+                                .onSubmit { addManualBundleID() }
+                            Button("添加 ID") { addManualBundleID() }
+                                .buttonStyle(.bordered)
+                                .disabled(bundleIDInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             Button("添加应用…") {
                                 let panel = NSOpenPanel()
                                 panel.directoryURL = URL(fileURLWithPath: "/Applications")
                                 panel.allowedContentTypes = [.applicationBundle]
-                                if panel.runModal() == .OK, let url = panel.url, let bid = Bundle(url: url)?.bundleIdentifier {
+                                if panel.runModal() == .OK, let url = panel.url, let bid = Bundle(url: url)?.bundleIdentifier,
+                                   bid != Bundle.main.bundleIdentifier {
                                     model.settings.appLockProtectedApps.insert(bid)
                                     lockManager.refresh()
                                 }
@@ -134,6 +139,14 @@ struct AppLockSettingsView: View {
             }
             .padding(24)
         }
+    }
+
+    private func addManualBundleID() {
+        let trimmed = bundleIDInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != Bundle.main.bundleIdentifier else { return }
+        model.settings.appLockProtectedApps.insert(trimmed)
+        bundleIDInput = ""
+        lockManager.refresh()
     }
 }
 

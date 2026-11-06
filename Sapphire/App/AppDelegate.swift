@@ -858,7 +858,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         createNotchWindow()
         archiveExtractor.reconcileDefaultHandlerIfNeeded()
         dmgInstallerManager.reconcileDefaultHandlerIfNeeded()
-        _ = circleToSearchManager
+        circleToSearchManager.startShortcutMonitor()
         _ = systemEnhanceWindowRegistry
         systemEnhanceDockPreviewController.start()
         systemEnhanceWindowSwitcher.start()

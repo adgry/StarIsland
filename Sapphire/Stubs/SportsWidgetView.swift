@@ -3,6 +3,8 @@
 //  Sapphire
 //
 
+
+#if !SAPPHIRE_FULL_BUILD
 import SwiftUI
 
 struct SportsWidgetView: View {
@@ -64,3 +66,4 @@ struct SportsWidgetView: View {
         }
     }
 }
+#endif

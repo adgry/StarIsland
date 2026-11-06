@@ -439,13 +439,26 @@ class NotificationManager: ObservableObject {
                 let source = notification.appName
                 let title = notification.title
                 let body = notification.body
-                Task { @MainActor in
-                    SmartInboxMonitor.shared.presentOTP(
-                        code: code,
-                        source: source,
-                        title: title,
-                        body: body
-                    )
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        SmartInboxMonitor.shared.presentOTP(
+                            code: code,
+                            source: source,
+                            title: title,
+                            body: body
+                        )
+                    }
+                } else {
+                    DispatchQueue.main.sync {
+                        MainActor.assumeIsolated {
+                            SmartInboxMonitor.shared.presentOTP(
+                                code: code,
+                                source: source,
+                                title: title,
+                                body: body
+                            )
+                        }
+                    }
                 }
             }
         }

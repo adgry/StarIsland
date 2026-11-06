@@ -10,13 +10,13 @@ enum StarIslandAIKeyStore {
     private static let defaults = UserDefaults.standard
 
     static var deepseekAPIKey: String {
-        get { defaults.string(forKey: "starisland.ai.deepseekKey") ?? "" }
-        set { defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "starisland.ai.deepseekKey") }
+        get { StarIslandKeychainVault.string(forAccount: "ai.deepseekKey", legacyDefaultsKey: "starisland.ai.deepseekKey") }
+        set { StarIslandKeychainVault.setString(newValue, forAccount: "ai.deepseekKey", legacyDefaultsKey: "starisland.ai.deepseekKey") }
     }
 
     static var qwenAPIKey: String {
-        get { defaults.string(forKey: "starisland.ai.qwenKey") ?? "" }
-        set { defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "starisland.ai.qwenKey") }
+        get { StarIslandKeychainVault.string(forAccount: "ai.qwenKey", legacyDefaultsKey: "starisland.ai.qwenKey") }
+        set { StarIslandKeychainVault.setString(newValue, forAccount: "ai.qwenKey", legacyDefaultsKey: "starisland.ai.qwenKey") }
     }
 
     static var ollamaEndpoint: String {
@@ -101,7 +101,7 @@ enum LLMBackend: String, Codable, CaseIterable {
         case .ollama:
             return "ollama-local"
         case .auto:
-            for candidate: LLMBackend in [.gemini, .deepseek, .qwen, .openRouter, .openAI] {
+            for candidate: LLMBackend in [.gemini, .deepseek, .qwen, .openRouter, .openAI, .anthropic] {
                 let key = candidate.resolveAPIKey(fallbackGeminiKey: fallbackGeminiKey)
                 if !key.isEmpty { return key }
             }
@@ -149,6 +149,26 @@ enum LLMBackend: String, Codable, CaseIterable {
             var req = URLRequest(url: url, timeoutInterval: 35)
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            return req
+
+        case .anthropic:
+            guard !key.isEmpty else { throw LLMBackendError.missingAPIKey(resolved.displayName) }
+            guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
+                throw LLMBackendError.invalidEndpoint
+            }
+            let model = BlipModelPreferences.anthropicModel.isEmpty ? "claude-3-5-sonnet-latest" : BlipModelPreferences.anthropicModel
+            let payload: [String: Any] = [
+                "model": model,
+                "max_tokens": 2048,
+                "system": systemPrompt,
+                "messages": [["role": "user", "content": prompt]]
+            ]
+            var req = URLRequest(url: url, timeoutInterval: 35)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(key, forHTTPHeaderField: "x-api-key")
+            req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
             req.httpBody = try JSONSerialization.data(withJSONObject: payload)
             return req
 
@@ -214,6 +234,10 @@ enum LLMBackend: String, Codable, CaseIterable {
            let text = (message["content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
            !text.isEmpty {
             return text
+        }
+        if let contentBlocks = root["content"] as? [[String: Any]] {
+            let text = contentBlocks.compactMap { $0["text"] as? String }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { return text }
         }
         if let message = root["message"] as? [String: Any],
            let text = (message["content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),

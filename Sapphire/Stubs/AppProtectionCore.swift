@@ -115,6 +115,11 @@ final class AppBlocker {
                 self.onAppActivated?(name, bid, app)
                 if self.shieldsOnlyWhenFrontmost {
                     for existing in Array(self.shieldPanelsByBundleID.keys) where existing != bid && !self.keepsShieldWhenNotFrontmost(existing) {
+                        if self.isBlocked(existing) {
+                            for appInstance in NSRunningApplication.runningApplications(withBundleIdentifier: existing) {
+                                appInstance.hide()
+                            }
+                        }
                         self.unshield(bundleID: existing)
                     }
                 }

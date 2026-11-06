@@ -3,6 +3,8 @@
 //  Sapphire
 //
 
+
+#if !SAPPHIRE_FULL_BUILD
 import SwiftUI
 
 struct FinancePlayerView: View {
@@ -101,3 +103,4 @@ struct FinancePlayerView: View {
         }
     }
 }
+#endif

@@ -42,9 +42,9 @@ enum HelperIssue: Equatable {
         case .spawnFailed:
             return "权限已授予，但 macOS 仍无法启动辅助工具。"
         case .needsApproval:
-            return "请在“登录项”中开启 Sapphire 与 Sapphire Helper。"
+            return "请在“登录项”中开启 星岛 与 StarIsland Helper。"
         case .notFound:
-            return "macOS 丢失了辅助工具（状态 3）。请重置辅助工具；若仍卡住，Sapphire 将自动重新启动。"
+            return "macOS 丢失了辅助工具（状态 3）。请重置辅助工具；若仍卡住，星岛 将自动重新启动。"
         }
     }
 
@@ -57,10 +57,10 @@ enum HelperIssue: Equatable {
             macOS 找不到辅助工具。
 
             解决步骤：
-            1. 点击下方“重置辅助工具”。Sapphire 将通过 SMAppService 注销并重新注册辅助工具。
-            2. 若辅助工具仍未启动，Sapphire 将自动重新启动——或点击“重新启动 Sapphire”。
-            3. Sapphire 打开后，如出现提示请点击“安装”。
-            4. 前往“系统设置 → 通用 → 登录项”，在“允许在后台”下启用 Sapphire Helper。
+            1. 点击下方“重置辅助工具”。星岛 将通过 SMAppService 注销并重新注册辅助工具。
+            2. 若辅助工具仍未启动，Sapphire 将自动重新启动——或点击“重新启动 星岛”。
+            3. 星岛 打开后，如出现提示请点击“安装”。
+            4. 前往“系统设置 → 通用 → 登录项”，在“允许在后台”下启用 StarIsland Helper。
 
             请先尝试“重置辅助工具”，仅当辅助工具随后仍然卡住时再重新启动应用。
             """
@@ -72,17 +72,17 @@ enum HelperIssue: Equatable {
 
             解决步骤：
             1. 点击下方“打开登录项”。
-            2. 在“允许在后台”下开启 Sapphire。
+            2. 在“允许在后台”下开启 星岛。
             3. 如 macOS 提示输入密码，请完成验证。
-            4. 返回 Sapphire 并点击“安装 / 激活”。
+            4. 返回 星岛 并点击“安装 / 激活”。
             """
         case .spawnFailed:
             return """
             错误代码：SAP-H1
 
-            “登录项”权限已授予（状态 1），但 macOS 仍无法启动辅助工具。这通常意味着 Sapphire 自身的辅助工具注册状态已卡住。
+            “登录项”权限已授予（状态 1），但 macOS 仍无法启动辅助工具。这通常意味着 星岛 自身的辅助工具注册状态已卡住。
 
-            请点击下方“重置辅助工具”。Sapphire 将注销并重新注册辅助工具，若问题依旧则自动重新启动。
+            请点击下方“重置辅助工具”。星岛 将注销并重新注册辅助工具，若问题依旧则自动重新启动。
             """
         }
     }

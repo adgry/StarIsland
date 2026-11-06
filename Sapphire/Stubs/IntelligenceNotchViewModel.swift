@@ -36,18 +36,22 @@ final class IntelligenceNotchViewModel: ObservableObject {
     @Published var lastResult: RunResult?
 
     private var activeTask: Task<Void, Never>?
+    private var activeRunID = UUID()
 
     func run(apiKey: String, backend: LLMBackend, geminiSpeedMode: GeminiSpeedMode) {
         let prompt = taskInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
 
         stop()
+        let runID = UUID()
+        activeRunID = runID
         let startedAt = Date()
         let resolvedBackend = backend.resolvedExecutionBackend(fallbackGeminiKey: apiKey)
 
         isRunning = true
         statusMessage = "正在通过 \(resolvedBackend.displayName) 思考…"
         currentStepTitle = "生成回答"
+        currentActionLabel = "请求 \(resolvedBackend.displayName)"
         displayStepIndex = 1
         displayStepTotal = 1
         subtaskProgress = (0, 1)
@@ -63,11 +67,13 @@ final class IntelligenceNotchViewModel: ObservableObject {
                     geminiSpeedMode: geminiSpeedMode
                 )
                 let (data, response) = try await URLSession.shared.data(for: req)
+                guard !Task.isCancelled, self.activeRunID == runID else { return }
                 if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                     let body = String(data: data, encoding: .utf8) ?? ""
                     throw LLMBackendError.httpStatus(http.statusCode, body)
                 }
                 let answer = try LLMBackend.parseChatResponse(data: data, backend: resolvedBackend)
+                guard !Task.isCancelled, self.activeRunID == runID else { return }
                 self.lastReply = answer
                 self.statusMessage = "已完成"
                 self.subtaskProgress = (1, 1)
@@ -81,6 +87,7 @@ final class IntelligenceNotchViewModel: ObservableObject {
                 )
                 MemorySystemManager.shared.recordInteraction(prompt: prompt, reply: answer)
             } catch {
+                guard !Task.isCancelled, self.activeRunID == runID else { return }
                 self.statusMessage = "请求未完成"
                 self.logEntries.append(LogEntry(text: error.localizedDescription, isError: true, isSubtask: false))
                 self.lastResult = RunResult(
@@ -91,11 +98,14 @@ final class IntelligenceNotchViewModel: ObservableObject {
                     duration: Date().timeIntervalSince(startedAt)
                 )
             }
-            self.isRunning = false
+            if self.activeRunID == runID {
+                self.isRunning = false
+            }
         }
     }
 
     func stop() {
+        activeRunID = UUID()
         activeTask?.cancel()
         activeTask = nil
         if isRunning {

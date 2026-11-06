@@ -3,6 +3,8 @@
 //  Sapphire
 //
 
+
+#if !SAPPHIRE_FULL_BUILD
 import Foundation
 
 enum SportsFinanceContentProvider {
@@ -37,3 +39,4 @@ enum SportsFinanceContentProvider {
         )
     }
 }
+#endif

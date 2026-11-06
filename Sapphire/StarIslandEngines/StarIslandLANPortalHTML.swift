@@ -80,6 +80,10 @@ enum StarIslandLANPortalHTML {
                   <button class="sec" onclick="media('previous')">上一曲</button>
                   <button onclick="media('playPause')">播放/暂停</button>
                   <button class="sec" onclick="media('next')">下一曲</button>
+                </div>
+                <div class="row">
+                  <button class="sec" onclick="media('volumeDown')">音量 -</button>
+                  <button class="sec" onclick="media('volumeUp')">音量 +</button>
                   <button class="sec" onclick="media('lockScreen')">锁屏</button>
                 </div>
               </div>

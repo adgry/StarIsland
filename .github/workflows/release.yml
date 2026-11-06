@@ -115,11 +115,13 @@ jobs:
           ditto "$RUNNER_TEMP/DerivedData/Build/Products/Release/StarIsland.app" "$RUNNER_TEMP/package/StarIsland.app"
           xattr -cr "$RUNNER_TEMP/package/StarIsland.app" || true
           codesign --force --deep --sign - "$RUNNER_TEMP/package/StarIsland.app"
-          codesign --force --sign - \
+          codesign --force --sign - --options runtime --generate-entitlement-der \
             --identifier com.adgry.starisland.helper \
             --entitlements "com.shariq.sapphireHelper/sapphireHelper.entitlements" \
             "$RUNNER_TEMP/package/StarIsland.app/Contents/MacOS/com.shariq.sapphireHelper"
-          codesign --force --sign - --entitlements "scripts/SapphireAdHoc.entitlements" "$RUNNER_TEMP/package/StarIsland.app"
+          codesign --force --sign - --options runtime --generate-entitlement-der \
+            --entitlements "scripts/SapphireAdHoc.entitlements" "$RUNNER_TEMP/package/StarIsland.app"
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/package/StarIsland.app"
           cd "$RUNNER_TEMP/package"
           COPYFILE_DISABLE=1 /usr/bin/zip -qryy "StarIsland-arm64.zip" "StarIsland.app"
           shasum -a 256 "StarIsland-arm64.zip" > "StarIsland-arm64.zip.sha256"

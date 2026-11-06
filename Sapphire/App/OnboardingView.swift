@@ -128,7 +128,7 @@ private struct PermissionsStepView: View {
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .padding(.top, 40).padding(.bottom, 10)
 
-            Text("Sapphire 需要获取以下几项权限以运行核心功能。")
+            Text("星岛 需要获取以下几项权限以运行核心功能。")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundColor(.secondary)
@@ -176,7 +176,7 @@ private struct HelperInstallationStepView: View {
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .padding(.top, 40).padding(.bottom, 10)
 
-            Text("Sapphire 需要特权辅助工具来实现电池管理与系统集成。macOS 会提示你在“登录项 → 允许在后台”中授予许可。")
+            Text("星岛 需要特权辅助工具来实现电池管理与系统集成。macOS 会提示你在“登录项 → 允许在后台”中授予许可。")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundColor(.secondary)
@@ -270,15 +270,15 @@ private struct HelperInstallationStepView: View {
         }
         switch helperManager.status {
         case .requiresApproval:
-            return "系统设置已打开。请在“允许在后台”下同时开启 Sapphire 与 Sapphire Helper，然后返回此处。"
+            return "系统设置已打开。请在“允许在后台”下同时开启 星岛 与 StarIsland Helper，然后返回此处。"
         case .enabled where !helperManager.isRunning:
-            return "辅助工具已获批但未响应。请点击“重置辅助工具”，以便 Sapphire 重新注册后台项目并重装辅助工具。"
+            return "辅助工具已获批但未响应。请点击“重置辅助工具”，以便 星岛 重新注册后台项目并重装辅助工具。"
         case .enabled:
             return "辅助工具已就绪，可以继续。"
         case .notFound:
-            return "macOS 丢失了辅助工具注册信息（SAP-H3）。请点击“重置辅助工具”重建注册；若辅助工具仍卡住，Sapphire 将自动重新启动。"
+            return "macOS 丢失了辅助工具注册信息（SAP-H3）。请点击“重置辅助工具”重建注册；若辅助工具仍卡住，星岛 将自动重新启动。"
         default:
-            return "点击“安装辅助工具”，批准 macOS 弹窗提示，并在“系统设置 → 通用 → 登录项 → 允许在后台”中启用 Sapphire。"
+            return "点击“安装辅助工具”，批准 macOS 弹窗提示，并在“系统设置 → 通用 → 登录项 → 允许在后台”中启用 星岛。"
         }
     }
 
@@ -310,7 +310,7 @@ private struct PrivacyStepView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     PrivacySection(
                         title: "我们收集的数据（统计分析）",
-                        content: "为了改进 Sapphire，我们会收集完全匿名且汇总的使用统计数据。这有助于我们了解常用功能、排查问题，并为所有用户持续打磨体验。"
+                        content: "为了改进 星岛，我们会收集完全匿名且汇总的使用统计数据。这有助于我们了解常用功能、排查问题，并为所有用户持续打磨体验。"
                     )
 
                     PrivacySection(
@@ -339,7 +339,7 @@ private struct PrivacyStepView: View {
             .padding(.top, 20)
 
             Toggle(isOn: $settings.settings.googleAnalyticsEnabled) {
-                Text("与 Google Analytics 共享匿名使用数据以帮助改进 Sapphire。你可以随时在“设置 > 通用”中更改此选项。")
+                Text("与 Google Analytics 共享匿名使用数据以帮助改进 星岛。你可以随时在“设置 > 通用”中更改此选项。")
                     .font(.callout)
             }
             .padding(.horizontal, 50)
@@ -520,7 +520,7 @@ private struct CorePreferencesStepView: View {
                     SettingsSwitch(isOn: $settings.settings.eyeBreakLiveActivityEnabled)
                 }
                 ModernOnboardingRow(iconName: "thermometer.sun.fill", iconColor: .orange, title: "温度单位", description: "天气预报默认使用的温度单位。") { Picker("", selection: $settings.settings.weatherUseCelsius) { Text("°C").tag(true); Text("°F").tag(false) }.pickerStyle(.segmented).labelsHidden().frame(width: 100) }
-                ModernOnboardingRow(iconName: "bolt.horizontal.circle.fill", iconColor: .purple, title: "登录时启动", description: "开机登录 Mac 时自动启动 Sapphire。") { SettingsSwitch(isOn: $settings.settings.launchAtLogin) }
+                ModernOnboardingRow(iconName: "bolt.horizontal.circle.fill", iconColor: .purple, title: "登录时启动", description: "开机登录 Mac 时自动启动 星岛。") { SettingsSwitch(isOn: $settings.settings.launchAtLogin) }
             }.padding(50)
             Spacer()
             OnboardingButton(title: "继续", action: onNext)
@@ -545,7 +545,7 @@ private struct LockScreenSetupStepView: View {
                 .padding(.horizontal, 50)
 
             VStack(spacing: 15) {
-                ModernOnboardingRow(iconName: "lock.display", iconColor: .red, title: "在锁定屏幕上启用", description: "Mac 锁屏时继续显示 Sapphire 灵动岛及相关功能。") {
+                ModernOnboardingRow(iconName: "lock.display", iconColor: .red, title: "在锁定屏幕上启用", description: "Mac 锁屏时继续显示 星岛 灵动岛及相关功能。") {
                     SettingsSwitch(isOn: $settings.settings.lockScreenShowNotch)
                 }
 
@@ -582,7 +582,7 @@ private struct SubscriptionOverviewStepView: View {
         VStack(spacing: 20) {
             Spacer()
 
-            Text("你的 Sapphire 方案")
+            Text("你的 星岛 方案")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
 
             Text("可随时在“设置”中关联账户，跨设备同步你的订阅权益。")
@@ -884,9 +884,9 @@ private struct FinishStepView: View {
                 .padding(.top)
 
             Spacer()
-            OnboardingButton(title: "开始探索 Sapphire", action: onComplete)
+            OnboardingButton(title: "开始探索 星岛", action: onComplete)
 
-            Text("© 2025 Shariq Charolia. 保留所有权利。")
+            Text("© 2026 星岛 StarIsland · 全功能旗舰开源版")
                 .font(.caption).foregroundStyle(.tertiary).padding(.bottom, 20)
         }
         .onAppear {

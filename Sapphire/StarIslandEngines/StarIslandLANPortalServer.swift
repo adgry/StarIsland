@@ -63,13 +63,17 @@ struct StarIslandSharedFile: Identifiable, Equatable, Sendable {
 }
 
 private final class StarIslandHTTPAccumulator: @unchecked Sendable {
-    enum Step { case more, complete(StarIslandHTTPRequest), tooLarge, bad }
+    enum Step { case more, complete(StarIslandHTTPRequest), earlyReject(StarIslandHTTPResponse), tooLarge, bad }
     private static let delim = Data("\r\n\r\n".utf8)
     private let maxBody: Int
+    private let tokenManager: StarIslandPairingTokenManager
     private var buf = Data()
     private var head: (method: String, path: String, headers: [String: String], len: Int, bodyStart: Int)?
 
-    init(maxBody: Int) { self.maxBody = maxBody }
+    init(maxBody: Int, tokenManager: StarIslandPairingTokenManager) {
+        self.maxBody = maxBody
+        self.tokenManager = tokenManager
+    }
 
     func append(_ chunk: Data) -> Step {
         buf.append(chunk)
@@ -80,17 +84,34 @@ private final class StarIslandHTTPAccumulator: @unchecked Sendable {
             guard let first = lines.first else { return .bad }
             let parts = first.split(separator: " ")
             guard parts.count >= 2 else { return .bad }
+            let method = String(parts[0]).uppercased()
             let rawTarget = String(parts[1])
-            let path = URLComponents(string: rawTarget)?.path ?? rawTarget
+            let rawPath = URLComponents(string: rawTarget)?.path ?? rawTarget
+            let path = rawPath.isEmpty ? "/" : rawPath
             var hdrs: [String: String] = [:]
             for line in lines.dropFirst() where !line.isEmpty {
                 if let idx = line.firstIndex(of: ":") {
                     hdrs[line[..<idx].trimmingCharacters(in: .whitespaces)] = line[line.index(after: idx)...].trimmingCharacters(in: .whitespaces)
                 }
             }
-            let len = max(0, Int(hdrs.first { $0.key.lowercased() == "content-length" }?.value ?? "0") ?? 0)
-            if len > maxBody { return .tooLarge }
-            head = (String(parts[0]).uppercased(), path.isEmpty ? "/" : path, hdrs, len, r.upperBound)
+            if let rejection = StarIslandLANPortalServer.earlyHeaderRejection(
+                method: method,
+                path: path,
+                headers: hdrs,
+                tokenManager: tokenManager
+            ) {
+                return .earlyReject(rejection)
+            }
+            let rawLen = hdrs.first { $0.key.lowercased() == "content-length" }?.value.trimmingCharacters(in: .whitespaces)
+            let len: Int
+            if let rawLen, !rawLen.isEmpty {
+                guard rawLen.allSatisfy(\.isNumber) else { return .bad }
+                guard let parsed = Int(rawLen), parsed <= maxBody else { return .tooLarge }
+                len = parsed
+            } else {
+                len = 0
+            }
+            head = (method, path, hdrs, len, r.upperBound)
         }
         guard let h = head else { return .more }
         if buf.count - h.bodyStart < h.len { return .more }
@@ -102,6 +123,33 @@ private final class StarIslandHTTPAccumulator: @unchecked Sendable {
 @MainActor
 final class StarIslandLANPortalServer: ObservableObject {
     static let shared = StarIslandLANPortalServer()
+    nonisolated static let maxUploadBytes = 512 * 1024 * 1024
+
+    nonisolated static func earlyHeaderRejection(
+        method: String,
+        path: String,
+        headers: [String: String],
+        tokenManager: StarIslandPairingTokenManager
+    ) -> StarIslandHTTPResponse? {
+        let normalizedPath = path.isEmpty ? "/" : path
+        if let rawLen = headers.first(where: { $0.key.lowercased() == "content-length" })?.value.trimmingCharacters(in: .whitespaces),
+           !rawLen.isEmpty {
+            if !rawLen.allSatisfy(\.isNumber) {
+                return .json(["error": "Invalid Content-Length"], statusCode: 400, statusText: "Bad Request")
+            }
+            guard let parsed = Int(rawLen), parsed <= maxUploadBytes else {
+                return .json(["error": "Payload Too Large"], statusCode: 413, statusText: "Payload Too Large")
+            }
+        }
+        if normalizedPath.hasPrefix("/api/") && normalizedPath != "/api/pair" {
+            let authHeader = headers.first(where: { $0.key.lowercased() == "authorization" })?.value
+            let bearer = StarIslandPairingTokenManager.extractBearerToken(from: authHeader)
+            if !tokenManager.isValidSession(bearer) {
+                return .unauthorized()
+            }
+        }
+        return nil
+    }
 
     @Published private(set) var isRunning = false
     @Published private(set) var listeningPort: UInt16 = 58420
@@ -114,7 +162,7 @@ final class StarIslandLANPortalServer: ObservableObject {
     @Published private(set) var receivedFiles: [StarIslandSharedFile] = []
     @Published private(set) var statusMessage: String = "准备就绪"
 
-    let tokenManager: StarIslandPairingTokenManager
+    nonisolated let tokenManager: StarIslandPairingTokenManager
     var uploadDirectoryURL: URL
     var onStateChanged: (@MainActor () -> Void)?
 
@@ -237,9 +285,16 @@ final class StarIslandLANPortalServer: ObservableObject {
         case ("GET", "/api/status"):
             return .json(["ok": true, "hostName": hostDisplayName])
         case ("GET", "/api/files"):
+            guard SettingsModel.shared.settings.continuityFiles else { return .json(["files": []]) }
             let list = sharedFiles.map { ["id": $0.id, "name": $0.name, "sizeBytes": $0.sizeBytes] as [String: Any] }
             return .json(["files": list])
         case ("POST", "/api/upload"):
+            guard SettingsModel.shared.settings.continuityFiles else {
+                return .json(["error": "跨设备文件传输已关闭"], statusCode: 403, statusText: "Forbidden")
+            }
+            if request.body.count > Self.maxUploadBytes {
+                return .json(["error": "Payload Too Large"], statusCode: 413, statusText: "Payload Too Large")
+            }
             let rawName = (request.headerValue(for: "X-File-Name") ?? "").removingPercentEncoding ?? "transfer.bin"
             do {
                 try FileManager.default.createDirectory(at: uploadDirectoryURL, withIntermediateDirectories: true)
@@ -276,9 +331,17 @@ final class StarIslandLANPortalServer: ObservableObject {
             return .json(["ok": true])
         default:
             if request.method == "GET", path.hasPrefix("/api/files/") {
+                guard SettingsModel.shared.settings.continuityFiles else {
+                    return .json(["error": "跨设备文件传输已关闭"], statusCode: 403, statusText: "Forbidden")
+                }
                 let fid = String(path.dropFirst("/api/files/".count)).removingPercentEncoding ?? ""
-                guard let item = sharedFiles.first(where: { $0.id == fid }),
-                      let data = try? Data(contentsOf: item.fileURL) else {
+                guard let item = sharedFiles.first(where: { $0.id == fid }) else {
+                    return .json(["error": "文件不存在"], statusCode: 404, statusText: "Not Found")
+                }
+                if item.sizeBytes > Int64(Self.maxUploadBytes) {
+                    return .json(["error": "Payload Too Large"], statusCode: 413, statusText: "Payload Too Large")
+                }
+                guard let data = try? Data(contentsOf: item.fileURL) else {
                     return .json(["error": "文件不存在"], statusCode: 404, statusText: "Not Found")
                 }
                 let enc = item.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "download"
@@ -286,6 +349,66 @@ final class StarIslandLANPortalServer: ObservableObject {
             }
             return .json(["error": "Not Found"], statusCode: 404, statusText: "Not Found")
         }
+    }
+
+    func handleHTTPRequestAsync(_ request: StarIslandHTTPRequest) async -> StarIslandHTTPResponse {
+        let path = request.path.isEmpty ? "/" : request.path
+        if request.method == "POST" && path == "/api/upload" {
+            let bearer = StarIslandPairingTokenManager.extractBearerToken(from: request.headerValue(for: "Authorization"))
+            guard tokenManager.isValidSession(bearer) else { return .unauthorized() }
+            connectedSessions = tokenManager.activeSessions()
+            guard SettingsModel.shared.settings.continuityFiles else {
+                return .json(["error": "跨设备文件传输已关闭"], statusCode: 403, statusText: "Forbidden")
+            }
+            if request.body.count > Self.maxUploadBytes {
+                return .json(["error": "Payload Too Large"], statusCode: 413, statusText: "Payload Too Large")
+            }
+            let rawName = (request.headerValue(for: "X-File-Name") ?? "").removingPercentEncoding ?? "transfer.bin"
+            let uploadDir = uploadDirectoryURL
+            let bodyData = request.body
+            let writeOutcome: Result<URL, Error> = await Task.detached(priority: .userInitiated) {
+                do {
+                    try FileManager.default.createDirectory(at: uploadDir, withIntermediateDirectories: true)
+                    let dest = StarIslandSafeFilename.uniqueDestinationURL(in: uploadDir, rawFilename: rawName)
+                    try bodyData.write(to: dest, options: .atomic)
+                    return .success(dest)
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            switch writeOutcome {
+            case .success(let dest):
+                receivedFiles.insert(StarIslandSharedFile(id: UUID().uuidString, name: dest.lastPathComponent, fileURL: dest, sizeBytes: Int64(bodyData.count)), at: 0)
+                return .json(["ok": true, "savedName": dest.lastPathComponent, "sizeBytes": bodyData.count])
+            case .failure(let error):
+                return .json(["error": error.localizedDescription], statusCode: 500, statusText: "Internal Server Error")
+            }
+        }
+        if request.method == "GET" && path.hasPrefix("/api/files/") {
+            let bearer = StarIslandPairingTokenManager.extractBearerToken(from: request.headerValue(for: "Authorization"))
+            guard tokenManager.isValidSession(bearer) else { return .unauthorized() }
+            connectedSessions = tokenManager.activeSessions()
+            guard SettingsModel.shared.settings.continuityFiles else {
+                return .json(["error": "跨设备文件传输已关闭"], statusCode: 403, statusText: "Forbidden")
+            }
+            let fid = String(path.dropFirst("/api/files/".count)).removingPercentEncoding ?? ""
+            guard let item = sharedFiles.first(where: { $0.id == fid }) else {
+                return .json(["error": "文件不存在"], statusCode: 404, statusText: "Not Found")
+            }
+            if item.sizeBytes > Int64(Self.maxUploadBytes) {
+                return .json(["error": "Payload Too Large"], statusCode: 413, statusText: "Payload Too Large")
+            }
+            let fileURL = item.fileURL
+            let data: Data? = await Task.detached(priority: .userInitiated) {
+                try? Data(contentsOf: fileURL)
+            }.value
+            guard let data else {
+                return .json(["error": "文件不存在"], statusCode: 404, statusText: "Not Found")
+            }
+            let enc = item.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "download"
+            return StarIslandHTTPResponse(statusCode: 200, statusText: "OK", headers: ["Content-Type": "application/octet-stream", "Content-Disposition": "attachment; filename*=UTF-8''\(enc)"], body: data)
+        }
+        return handleHTTPRequest(request)
     }
 
     private func rebuildPairingArtifacts() {
@@ -309,6 +432,17 @@ final class StarIslandLANPortalServer: ObservableObject {
             Task { @MainActor in await MusicManager.shared.nextTrack() }
         case "previous":
             Task { @MainActor in await MusicManager.shared.previousTrack() }
+        case "volumeUp", "volumeDown":
+            let delta = (cmd == "volumeUp") ? 8 : -8
+            Task.detached(priority: .userInitiated) {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+                proc.arguments = ["-e", "set volume output volume ((output volume of (get volume settings)) + (\(delta)))"]
+                proc.standardInput = FileHandle.nullDevice
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                try? proc.run()
+            }
         case "lockScreen":
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
@@ -319,7 +453,7 @@ final class StarIslandLANPortalServer: ObservableObject {
     }
 
     private nonisolated func accept(_ conn: NWConnection) {
-        let acc = StarIslandHTTPAccumulator(maxBody: 256 * 1024 * 1024)
+        let acc = StarIslandHTTPAccumulator(maxBody: Self.maxUploadBytes, tokenManager: tokenManager)
         conn.start(queue: queue)
         receiveLoop(conn, acc: acc)
     }
@@ -331,6 +465,8 @@ final class StarIslandLANPortalServer: ObservableObject {
                 switch acc.append(chunk) {
                 case .more:
                     if isComplete { conn.cancel() } else { self.receiveLoop(conn, acc: acc) }
+                case .earlyReject(let resp):
+                    self.send(resp, on: conn)
                 case .tooLarge:
                     self.send(StarIslandHTTPResponse.json(["error": "Payload Too Large"], statusCode: 413, statusText: "Payload Too Large"), on: conn)
                 case .bad:
@@ -338,7 +474,8 @@ final class StarIslandLANPortalServer: ObservableObject {
                 case .complete(let req):
                     Task { @MainActor [weak self] in
                         guard let self else { conn.cancel(); return }
-                        self.send(self.handleHTTPRequest(req), on: conn)
+                        let resp = await self.handleHTTPRequestAsync(req)
+                        self.send(resp, on: conn)
                     }
                 }
                 return
